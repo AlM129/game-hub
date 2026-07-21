@@ -54,6 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         updateGameCount();
 
         console.log('GameHub: initialization complete');
+        window.__gameHubInitialized = true;
     } catch (error) {
         console.error('GameHub: initialization failed', error);
     }

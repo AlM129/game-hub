@@ -20,6 +20,16 @@ async function launchGameHub() {
         headless: true
     });
     
+    // Disable remote registry for tests to ensure consistent offline behavior
+    await electronApp.evaluate(async () => {
+        // Import and disable remote registry
+        const registrySource = await import('./src/games/registry-source.js');
+        if (typeof registrySource.setUseRemoteRegistry === 'function') {
+            registrySource.setUseRemoteRegistry(false);
+            console.log('Test: Remote registry disabled for testing');
+        }
+    });
+    
     return electronApp;
 }
 

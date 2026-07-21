@@ -1,18 +1,20 @@
 // ==========================================
 // REGISTRY SOURCE
 // ==========================================
-// Provides the URL for the game registry.
-//
-// Currently loads from a local JSON file.
-// Future enhancement: set REGISTRY_URL to a remote endpoint
-// to enable dynamic game distribution without code changes.
+// Provides URLs for the game registry with remote-first loading.
+// Tries remote GitHub-hosted registry first, falls back to local file.
 
-const LOCAL_REGISTRY_URL = 'src/games/registry.json';
+export const LOCAL_REGISTRY_URL = 'src/games/registry.json';
 
-// In the future, this could be an environment variable or setting:
-// const REMOTE_REGISTRY_URL = 'https://example.com/registry.json';
+// Default remote registry URL (GitHub raw content URL)
+// Points to the v1.5.0-development branch
+const DEFAULT_REMOTE_REGISTRY_URL = 'https://raw.githubusercontent.com/AlM129/game-hub/v1.5.0-development/src/games/registry.json';
 
-let registryUrl = LOCAL_REGISTRY_URL;
+let registryUrl = DEFAULT_REMOTE_REGISTRY_URL;
+
+// Flag to track if we should use remote registry
+// Can be set to false for testing or offline scenarios
+let useRemoteRegistry = true;
 
 /**
  * Set a custom registry URL (for remote registry support).
@@ -27,4 +29,19 @@ export function setRegistryUrl(url) {
  */
 export function getRegistryUrl() {
     return registryUrl;
+}
+
+/**
+ * Set whether to use remote registry or force local.
+ * Useful for testing or offline scenarios.
+ */
+export function setUseRemoteRegistry(useRemote) {
+    useRemoteRegistry = useRemote;
+}
+
+/**
+ * Check if remote registry is enabled.
+ */
+export function getUseRemoteRegistry() {
+    return useRemoteRegistry;
 }

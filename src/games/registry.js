@@ -5,7 +5,7 @@
 // This allows adding new games, changing the featured game,
 // and eventually fetching from a remote URL without modifying Game Hub code.
 
-import { getRegistryUrl } from './registry-source.js';
+import { getRegistryUrl, LOCAL_REGISTRY_URL, getUseRemoteRegistry, setUseRemoteRegistry } from './registry-source.js';
 
 // Mutable registry state — populated from registry.json at startup
 export let gamesRegistry = [];
@@ -20,14 +20,57 @@ export let launcherChangelog = [];
 // ==========================================
 
 export async function loadRegistry() {
-    try {
-        const url = getRegistryUrl();
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Failed to load registry: ${response.status}`);
+    let data = null;
+    let source = null;
+    
+    // Try remote registry first if enabled
+    if (getUseRemoteRegistry()) {
+        try {
+            const remoteUrl = getRegistryUrl();
+            console.log('GameHub: Attempting to load remote registry from:', remoteUrl);
+            
+            const response = await fetch(remoteUrl);
+            
+            if (!response.ok) {
+                // Explicitly throw for non-OK responses to trigger fallback
+                throw new Error(`Remote registry returned status: ${response.status}`);
+            }
+            
+            data = await response.json();
+            source = 'remote';
+            console.log('GameHub: Successfully loaded registry from remote URL');
+        } catch (error) {
+            console.warn('GameHub: Failed to load remote registry (offline or network error):', error.message);
+            // Continue to local fallback
         }
-        const data = await response.json();
-
+    } else {
+        console.log('GameHub: Remote registry disabled, using local registry');
+    }
+    
+    // Fall back to local registry if remote failed or is disabled
+    if (!data) {
+        try {
+            console.log('GameHub: Falling back to local registry:', LOCAL_REGISTRY_URL);
+            const response = await fetch(LOCAL_REGISTRY_URL);
+            
+            if (!response.ok) {
+                throw new Error(`Local registry returned status: ${response.status}`);
+            }
+            
+            data = await response.json();
+            source = 'local';
+            console.log('GameHub: Successfully loaded registry from local fallback');
+        } catch (error) {
+            console.error('GameHub: Failed to load local registry:', error);
+            // Fall back to empty state — don't crash the app
+            gamesRegistry = [];
+            registryMeta = { version: "1", featured: null };
+            launcherChangelog = [];
+            return { gamesRegistry, registryMeta, launcherChangelog };
+        }
+    }
+    
+    try {
         // Validate minimal structure
         if (!data || !Array.isArray(data.games)) {
             throw new Error('Invalid registry format: missing games array');
@@ -52,9 +95,10 @@ export async function loadRegistry() {
             name: game.name || game.id
         }));
 
+        console.log(`GameHub: Registry loaded successfully from ${source} source (${gamesRegistry.length} games, version ${registryMeta.version})`);
         return { gamesRegistry, registryMeta, launcherChangelog };
     } catch (error) {
-        console.error('GameHub: Failed to load game registry:', error);
+        console.error('GameHub: Failed to parse registry data:', error);
         // Fall back to empty state — don't crash the app
         gamesRegistry = [];
         registryMeta = { version: "1", featured: null };
