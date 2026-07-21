@@ -8,9 +8,8 @@ export const LOCAL_REGISTRY_URL = 'src/games/registry.json';
 
 // Default remote registry URL (GitHub raw content URL)
 // Points to the v1.5.0-development branch
-const DEFAULT_REMOTE_REGISTRY_URL = 'https://raw.githubusercontent.com/AlM129/game-hub/v1.5.0-development/src/games/registry.json';
-
-let registryUrl = DEFAULT_REMOTE_REGISTRY_URL;
+export const REMOTE_REGISTRY_URL = "https://raw.githubusercontent.com/AlM129/game-hub-registry/main/src/games/registry.json";
+let registryUrl = REMOTE_REGISTRY_URL;
 
 // Flag to track if we should use remote registry
 // Can be set to false for testing or offline scenarios
