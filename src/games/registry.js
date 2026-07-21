@@ -1,40 +1,67 @@
 // ==========================================
 // GAME REGISTRY
 // ==========================================
-// Static registry mapping game IDs to their folder paths
-// Game metadata is loaded dynamically from game.json manifests
+// Loads game registry from an external JSON file.
+// This allows adding new games, changing the featured game,
+// and eventually fetching from a remote URL without modifying Game Hub code.
 
-export const gamesRegistry = [
-    {
-        id: "sky-ace",
-        path: "games/sky-ace/"
-    },
-    {
-        id: "tactical-drone-defense",
-        path: "games/tactical-drone-defense/"
-    },
-    {
-        id: "neon-survival",
-        path: "games/neon-survival/"
-    }
-];
+import { getRegistryUrl } from './registry-source.js';
+
+// Mutable registry state — populated from registry.json at startup
+export let gamesRegistry = [];
+export let registryMeta = {
+    version: "1",
+    featured: null
+};
+export let launcherChangelog = [];
 
 // ==========================================
-// LAUNCHER CHANGELOG
+// REGISTRY LOADER
 // ==========================================
-// Changelog for the Game Hub launcher itself
-// Future stages can use this for update detection and notifications
 
-export const launcherChangelog = [
-    {
-        version: "1.3.0",
-        date: "2026-07-10",
-        changes: [
-            "Added statistics dashboard",
-            "Added Game Hub Bridge"
-        ]
+export async function loadRegistry() {
+    try {
+        const url = getRegistryUrl();
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Failed to load registry: ${response.status}`);
+        }
+        const data = await response.json();
+
+        // Validate minimal structure
+        if (!data || !Array.isArray(data.games)) {
+            throw new Error('Invalid registry format: missing games array');
+        }
+
+        // Store registry metadata
+        registryMeta = {
+            version: data.version || "1",
+            featured: data.featured || null
+        };
+
+        // Store launcher changelog
+        launcherChangelog = data.launcherChangelog || [];
+
+        // Build the games registry array from JSON data
+        gamesRegistry = data.games.map(game => ({
+            id: game.id,
+            path: game.path,
+            featured: game.featured || false,
+            description: game.description || '',
+            thumbnail: game.thumbnail || '',
+            name: game.name || game.id
+        }));
+
+        return { gamesRegistry, registryMeta, launcherChangelog };
+    } catch (error) {
+        console.error('GameHub: Failed to load game registry:', error);
+        // Fall back to empty state — don't crash the app
+        gamesRegistry = [];
+        registryMeta = { version: "1", featured: null };
+        launcherChangelog = [];
+        return { gamesRegistry, registryMeta, launcherChangelog };
     }
-];
+}
 
 // ==========================================
 // CHANNEL CONFIGURATION

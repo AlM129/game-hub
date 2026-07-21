@@ -4,7 +4,7 @@
 // Thin entry point that wires all modules together
 
 import { Storage } from './storage.js';
-import { getGames, loadGameManifests, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog } from './games/loader.js';
+import { getGames, loadGameManifests, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog, getFeaturedGameId } from './games/loader.js';
 import { initialize as initAchievements, achievements, getAchievementDefinitions, addGameAchievements, RARITY_CONFIG } from './systems/achievements/manager.js';
 import { navigateTo } from './core/router.js';
 import { GameHub } from './core/events.js';
@@ -158,8 +158,14 @@ async function renderHome() {
     const recent = await getRecentlyPlayed(Storage);
     const favs = allWithData.filter(g => g.favorite);
     
-    // Featured Banner
-    const featured = recent[0] || allWithData[0];
+    // Featured Banner — use the registry's designated featured game
+    const featuredGameId = getFeaturedGameId();
+    let featured;
+    if (featuredGameId) {
+        featured = allWithData.find(g => g.id === featuredGameId) || recent[0] || allWithData[0];
+    } else {
+        featured = recent[0] || allWithData[0];
+    }
     const featuredContainer = document.getElementById('featuredBanner');
     if (featured && featuredContainer) {
         const playAction = featured.actions.find(a => a.type === 'play');

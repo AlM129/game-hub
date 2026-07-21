@@ -1,0 +1,43 @@
+{
+  "version": "1",
+  "featured": "tactical-drone-defense",
+  "launcherChangelog": [
+    {
+      "version": "1.3.0",
+      "date": "2026-07-10",
+      "changes": [
+        "Added statistics dashboard",
+        "Added Game Hub Bridge"
+      ]
+    }
+  ],
+  "games": [
+    {
+      "id": "tactical-drone-defense",
+      "name": "Tactical Drone Defense",
+      "version": "2.0.0",
+      "path": "games/tactical-drone-defense/",
+      "description": "Defend your base from waves of enemy drones in this strategic tower defense game.",
+      "thumbnail": "cover.png",
+      "featured": true
+    },
+    {
+      "id": "sky-ace",
+      "name": "Sky Ace",
+      "version": "1.0.0",
+      "path": "games/sky-ace/",
+      "description": "Take to the skies in this thrilling aerial combat game.",
+      "thumbnail": "cover.png",
+      "featured": false
+    },
+    {
+      "id": "neon-survival",
+      "name": "Neon Survival",
+      "version": "1.0.0",
+      "path": "games/neon-survival/",
+      "description": "Survive the neon-lit dystopia in this action-packed adventure.",
+      "thumbnail": "cover.png",
+      "featured": false
+    }
+  ]
+}

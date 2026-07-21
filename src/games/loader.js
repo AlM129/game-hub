@@ -2,8 +2,9 @@
 // GAME LOADER
 // ==========================================
 // Discovers and loads game manifests from game.json files
+// Uses the registry system (loaded from registry.json) instead of hardcoded lists.
 
-import { gamesRegistry } from './registry.js';
+import { loadRegistry, gamesRegistry, registryMeta } from './registry.js';
 
 // ==========================================
 // GAME DATA MODEL
@@ -15,7 +16,21 @@ export function getGames() {
     return _games;
 }
 
+/**
+ * Load the game registry from JSON, then load game manifests.
+ * This is called once at startup.
+ */
 export async function loadGameManifests() {
+    // Step 1: Load the registry (from JSON file, or eventually a remote URL)
+    await loadRegistry();
+    
+    if (gamesRegistry.length === 0) {
+        console.warn('GameHub: No games found in registry');
+        _games.length = 0;
+        return [];
+    }
+    
+    // Step 2: Load each game's manifest from its game.json
     const loadedGames = [];
     
     for (const registry of gamesRegistry) {
@@ -59,6 +74,30 @@ export async function loadGameManifests() {
     _games.push(...loadedGames);
     return loadedGames;
 }
+
+// ==========================================
+// REGISTRY METADATA EXPORTS
+// ==========================================
+
+/**
+ * Get the ID of the currently featured game from the registry.
+ * Returns null if no game is featured.
+ */
+export function getFeaturedGameId() {
+    return registryMeta.featured || null;
+}
+
+/**
+ * Get the registry version.
+ */
+export function getRegistryVersion() {
+    return registryMeta.version || "1";
+}
+
+/**
+ * Get the launcher changelog from the registry.
+ */
+export { registryMeta, launcherChangelog } from './registry.js';
 
 // ==========================================
 // PLAY DATA HELPERS
