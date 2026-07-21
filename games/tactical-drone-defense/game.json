@@ -1,0 +1,74 @@
+{
+  "id": "tactical-drone-defense",
+  "name": "Tactical Drone Defense",
+  "version": "1.4.0",
+  "developer": "MCM Games",
+  "genre": "Shooter",
+  "theme": "emerald",
+  "cover": "cover.png",
+  "entry": "index.html",
+  "description": "Tactical Drone Defense is an intense 3D shooter where you battle endless waves of rogue robots to survive a hostile, trap-filled warehouse.",
+  "releaseDate": "2026-07-04",
+  "banner": "cover.png",
+  "thumbnail": "cover.png",
+  "actions": [
+    { "type": "play", "label": "Play", "url": "index.html" },
+    { "type": "beta", "label": "Beta", "onClick": "openBetaModal()" }
+  ],
+  "releases": {
+    "stable": {
+      "version": "1.4.0",
+      "changelog": [
+        {
+          "version": "1.4.0",
+          "date": "2026-07-06",
+          "changes": [
+            "Initial stable release",
+            "Core gameplay loop",
+            "Basic weapons"
+          ]
+        }
+      ]
+    },
+    "beta": {
+      "version": "2.0.0-dev35",
+      "changelog": [
+        {
+          "version": "1.2.0-beta",
+          "date": "2026-07-10",
+          "changes": [
+            "Added new enemy types",
+            "Improved performance",
+            "Fixed bugs"
+          ]
+        },
+        {
+          "version": "1.1.0-beta",
+          "date": "2026-07-03",
+          "changes": [
+            "Added new weapons",
+            "Balanced difficulty"
+          ]
+        },
+        {
+          "version": "1.0.0-beta",
+          "date": "2026-06-25",
+          "changes": [
+            "Initial beta release",
+            "Core gameplay loop"
+          ]
+        }
+      ]
+    }
+  },
+  "themeConfig": {
+    "bg": "bg-emerald-950",
+    "text": "text-emerald-400",
+    "borderHover": "hover:border-emerald-500",
+    "btn": "bg-emerald-600",
+    "btnHover": "hover:bg-emerald-500",
+    "linkText": "text-emerald-400",
+    "linkHover": "group-hover:text-emerald-300",
+    "accent": "#10b981"
+  }
+}

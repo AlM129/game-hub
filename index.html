@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Hub</title>
+    <!-- Include Tailwind CSS for modern, responsive styling -->
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* ==========================================
+           SCROLLBAR
+           ========================================== */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+
+        /* ==========================================
+           SPA VIEW TRANSITIONS
+           ========================================== */
+        .view-container {
+            position: relative;
+            width: 100%;
+        }
+
+        .view-section {
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            width: 100%;
+        }
+
+        .view-hidden {
+            opacity: 0;
+            pointer-events: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            visibility: hidden;
+            transform: translateY(8px);
+        }
+
+        .view-active {
+            opacity: 1;
+            pointer-events: auto;
+            position: relative;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        /* ==========================================
+           SIDEBAR NAVIGATION
+           ========================================== */
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.625rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #9ca3af;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            position: relative;
+        }
+
+        .nav-item:hover {
+            color: #e5e7eb;
+            background: rgba(55, 65, 81, 0.5);
+        }
+
+        .nav-item.active {
+            color: #ffffff;
+            background: rgba(59, 130, 246, 0.15);
+        }
+
+        .nav-item.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 60%;
+            background: #3b82f6;
+            border-radius: 0 2px 2px 0;
+        }
+
+        .nav-item.disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        .nav-item.disabled:hover {
+            color: #9ca3af;
+            background: transparent;
+        }
+
+        /* ==========================================
+           SEARCH INPUT
+           ========================================== */
+        .search-input {
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            padding: 0.5rem 0.75rem 0.5rem 2.25rem;
+            font-size: 0.875rem;
+            color: #e5e7eb;
+            width: 100%;
+            outline: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .search-input::placeholder {
+            color: #6b7280;
+        }
+
+        .search-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+        }
+
+        /* ==========================================
+           CARD ANIMATIONS
+           ========================================== */
+        .game-card {
+            transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+        }
+
+        .game-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .game-card:active {
+            transform: translateY(-2px);
+            transition-duration: 0.1s;
+        }
+
+        /* Staggered card entrance */
+        @keyframes cardFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .card-animate {
+            animation: cardFadeIn 0.35s ease forwards;
+            opacity: 0;
+        }
+
+        /* ==========================================
+           BUTTON FEEDBACK
+           ========================================== */
+        .btn-press {
+            transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.2s ease;
+        }
+
+        .btn-press:active {
+            transform: scale(0.97);
+        }
+
+        /* ==========================================
+           FEATURED BANNER
+           ========================================== */
+        .featured-banner {
+            position: relative;
+            border-radius: 1rem;
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .featured-banner:hover {
+            transform: scale(1.005);
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+        }
+
+        .featured-banner:hover .featured-img {
+            transform: scale(1.03);
+        }
+
+        .featured-img {
+            transition: transform 0.5s ease;
+        }
+
+        /* ==========================================
+           COMING SOON PAGE
+           ========================================== */
+        @keyframes floatPulse {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-6px);
+            }
+        }
+
+        .float-icon {
+            animation: floatPulse 2.5s ease-in-out infinite;
+        }
+
+        /* ==========================================
+           FAVORITE BUTTON
+           ========================================== */
+        .fav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            font-weight: 700;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid #374151;
+            background: #1f2937;
+            color: #9ca3af;
+        }
+
+        .fav-btn:hover {
+            border-color: #eab308;
+            color: #eab308;
+            background: rgba(234, 179, 8, 0.08);
+        }
+
+        .fav-btn.favorited {
+            border-color: #eab308;
+            color: #eab308;
+            background: rgba(234, 179, 8, 0.12);
+        }
+
+        .fav-btn .star-icon {
+            transition: transform 0.25s ease;
+        }
+
+        .fav-btn:active .star-icon {
+            transform: scale(1.3);
+        }
+
+        /* ==========================================
+           SETTINGS PAGE
+           ========================================== */
+        .setting-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #1f2937;
+            transition: background 0.15s ease;
+        }
+
+        .setting-row:last-child {
+            border-bottom: none;
+        }
+
+        .setting-row:hover {
+            background: rgba(55, 65, 81, 0.3);
+        }
+
+        input[type="range"].volume-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: #374151;
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type="range"].volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            transition: transform 0.15s ease;
+        }
+
+        input[type="range"].volume-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* ==========================================
+           LAYOUT
+           ========================================== */
+        .app-layout {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .app-sidebar {
+            width: 220px;
+            min-width: 220px;
+            background: #111827;
+            border-right: 1px solid #1f2937;
+            display: flex;
+            flex-direction: column;
+            z-index: 20;
+        }
+
+        .app-content {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-gray-100 font-sans selection:bg-blue-500 selection:text-white overflow-hidden">
+
+    <div class="app-layout">
+
+        <!-- ==========================================
+             SIDEBAR NAVIGATION
+             ========================================== -->
+        <aside class="app-sidebar">
+            <!-- Logo -->
+            <div class="p-5 pb-6 border-b border-gray-800">
+                <div class="flex items-center gap-2.5 cursor-pointer" onclick="navigateTo('home')">
+                    <svg class="w-7 h-7 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor"
+                        viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z">
+                        </path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="text-lg font-bold tracking-wider text-white">Game<span
+                            class="text-blue-500">Hub</span></span>
+                </div>
+            </div>
+
+            <!-- Main Navigation -->
+            <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+                <div class="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">Main</div>
+
+                <div id="navHome" class="nav-item active" onclick="navigateTo('home')">
+                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6">
+                        </path>
+                    </svg>
+                    Home
+                </div>
+                <div id="navGames" class="nav-item" onclick="navigateTo('library')">
+                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
+                        </path>
+                    </svg>
+                    Games
+                </div>
+
+                <div class="px-3 pt-5 pb-2 text-[10px] font-bold uppercase tracking-widest text-gray-600">Features</div>
+
+                <div id="navAchievements" class="nav-item" onclick="navigateTo('achievements')">
+                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z">
+                        </path>
+                    </svg>
+                    Achievements
+                </div>
+                <div id="navStats" class="nav-item" onclick="navigateTo('statistics')">
+                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
+                        </path>
+                    </svg>
+                    Statistics
+                </div>
+                <div id="navSettings" class="nav-item disabled" onclick="navigateTo('settings')">
+                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                        </path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    Settings
+                    <span
+                        class="ml-auto text-[10px] bg-gray-700 text-gray-500 px-1.5 py-0.5 rounded font-bold">Soon</span>
+                </div>
+            </nav>
+
+            <!-- Sidebar Footer -->
+            <div class="p-4 border-t border-gray-800">
+                <div class="text-[11px] text-gray-600 text-center">&copy; 2026 MCM Games</div>
+            </div>
+        </aside>
+
+        <!-- ==========================================
+             MAIN CONTENT AREA
+             ========================================== -->
+        <div class="app-content">
+
+            <!-- Top Bar -->
+            <header
+                class="bg-gray-800 border-b border-gray-700 shadow-md px-8 py-4 sticky top-0 z-10 flex items-center justify-between flex-shrink-0">
+                <div>
+                    <h2 id="pageTitle" class="text-lg font-bold text-white">Home</h2>
+                </div>
+                <div id="gameCountDisplay" class="text-sm text-gray-400 font-medium">
+                    3 Games Available
+                </div>
+            </header>
+
+            <!-- Content Views -->
+            <main class="flex-grow p-8 view-container">
+
+                <!-- ==========================================
+                      HOME VIEW
+                      ========================================== -->
+                <div id="homeView" class="view-section view-active">
+
+                    <!-- Featured Game Banner -->
+                    <div class="mb-10">
+                        <h3 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Featured</h3>
+                        <div id="featuredBanner" class="featured-banner">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Recently Played -->
+                    <div class="mb-10">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-bold uppercase tracking-widest text-gray-500">Recently Played</h3>
+                            <button onclick="navigateTo('library')"
+                                class="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors">View All
+                                &rarr;</button>
+                        </div>
+                        <div id="recentlyPlayedRow" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Favorites -->
+                    <div id="homeFavoritesSection" class="mb-10 hidden">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-bold uppercase tracking-widest text-gray-500">⭐ Favorites</h3>
+                        </div>
+                        <div id="homeFavoritesRow" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- What's New -->
+                    <div id="homeNewUpdatesSection" class="mb-10 hidden">
+                        <h3 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">What's New</h3>
+                        <div id="homeNewUpdatesRow" class="space-y-4">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Quick Stats Row -->
+                    <div>
+                        <h3 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Overview</h3>
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                                <div class="text-2xl font-bold text-white" id="statTotalGames">3</div>
+                                <div class="text-xs text-gray-400 mt-1">Games in Library</div>
+                            </div>
+                            <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                                <div class="text-2xl font-bold text-white" id="statTotalPlays">—</div>
+                                <div class="text-xs text-gray-400 mt-1">Total Play Sessions</div>
+                            </div>
+                            <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                                <div class="text-2xl font-bold text-white" id="statAchievements">—</div>
+                                <div class="text-xs text-gray-400 mt-1">Achievements</div>
+                            </div>
+                            <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                                <div class="text-2xl font-bold text-white" id="statHours">—</div>
+                                <div class="text-xs text-gray-400 mt-1">Hours Played</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==========================================
+                      LIBRARY VIEW (GRID)
+                      ========================================== -->
+                <div id="libraryView" class="view-section view-hidden">
+                    <!-- Search & Header -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+                        <div>
+                            <h2 class="text-3xl font-extrabold text-white">Your Library</h2>
+                            <p class="text-gray-400 text-sm mt-1">Select a game to view details.</p>
+                        </div>
+                        <div class="relative w-full sm:w-72">
+                            <svg class="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                            <input id="searchInput" type="text" placeholder="Search games..." class="search-input"
+                                oninput="handleSearch(this.value)">
+                        </div>
+                    </div>
+
+                    <!-- Game Grid -->
+                    <div id="gamesGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <!-- Cards injected here -->
+                    </div>
+
+                    <!-- No results message -->
+                    <div id="noResults" class="hidden text-center py-16">
+                        <svg class="w-12 h-12 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                        <p class="text-gray-500 font-medium">No games match your search.</p>
+                        <button onclick="clearSearch()"
+                            class="mt-3 text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors">Clear
+                            search</button>
+                    </div>
+                </div>
+
+                <!-- ==========================================
+                      GAME DETAILS VIEW
+                      ========================================== -->
+                <div id="detailsView" class="view-section view-hidden">
+                    <!-- Back Button -->
+                    <button id="detailsBackBtn"
+                        class="mb-6 flex items-center gap-2 text-gray-400 hover:text-white font-medium transition-colors btn-press">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                        </svg>
+                        Back to Library
+                    </button>
+
+                    <!-- Details Container -->
+                    <div class="bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-gray-700">
+
+                        <!-- Hero / Banner Section -->
+                        <div id="detailsBannerContainer"
+                            class="w-full h-64 md:h-80 relative overflow-hidden flex items-center justify-center bg-gray-900">
+                            <!-- Background blurred banner image -->
+                            <img id="detailsBannerBg" src="" alt="Banner Background"
+                                class="absolute inset-0 w-full h-full object-cover opacity-40 blur-md scale-105">
+                            <div class="absolute inset-0 bg-gradient-to-t from-gray-800 to-transparent opacity-80 z-0">
+                            </div>
+
+                            <!-- Clean thumbnail centered -->
+                            <img id="detailsBannerImg" src="" alt="Game Banner"
+                                class="z-10 h-full object-contain shadow-2xl rounded-lg">
+                        </div>
+
+                        <!-- Info Section -->
+                        <div class="p-8 md:p-10 flex flex-col md:flex-row gap-8 lg:gap-12">
+
+                            <!-- Main details -->
+                            <div class="flex-grow">
+                                <h2 id="detailsTitle"
+                                    class="text-4xl md:text-5xl font-extrabold text-white mb-4 tracking-tight">Game
+                                    Title</h2>
+
+                                <!-- Metadata -->
+                                <div id="detailsMeta"
+                                    class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-400 mb-8 font-medium">
+                                    <!-- Populated by JS -->
+                                </div>
+
+                                <p id="detailsDescription"
+                                    class="text-gray-300 text-base md:text-lg leading-relaxed mb-10 max-w-3xl">
+                                    Description goes here.
+                                </p>
+
+                                <!-- Action Buttons -->
+                                <div id="detailsActions" class="flex flex-wrap gap-4">
+                                    <!-- Buttons injected here by JS -->
+                                </div>
+                            </div>
+
+                            <!-- Sidebar Info -->
+                            <div
+                                class="md:w-64 flex-shrink-0 border-t md:border-t-0 md:border-l border-gray-700 pt-8 md:pt-0 md:pl-8">
+                                <h3 class="text-gray-500 font-bold uppercase tracking-wider text-xs mb-4">Game Info</h3>
+                                <dl id="detailsSidebar" class="text-sm space-y-3">
+                                    <!-- Populated by JS -->
+                                </dl>
+
+                                <h3 class="text-gray-500 font-bold uppercase tracking-wider text-xs mb-4 mt-8">
+                                    Achievements</h3>
+                                <div id="detailsAchievements" class="text-sm space-y-2">
+                                    <!-- Populated by JS -->
+                                </div>
+
+                                <h3 class="text-gray-500 font-bold uppercase tracking-wider text-xs mb-4 mt-8">Changelog
+                                </h3>
+                                <div id="detailsChangelog" class="text-sm space-y-3 max-h-64 overflow-y-auto">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==========================================
+                      PLACEHOLDER VIEWS (Achievements, Stats, Settings)
+                      ========================================== -->
+                <div id="achievementsView" class="view-section view-hidden">
+                    <div class="max-w-4xl mx-auto px-4 py-8">
+                        <h2 class="text-3xl font-extrabold text-white mb-2">Achievements</h2>
+                        <p class="text-gray-400 text-sm mb-6">Track your greatest gaming milestones.</p>
+
+                        <!-- Summary Stats -->
+                        <div class="flex items-center gap-4 mb-8">
+                            <div
+                                class="bg-gray-800 rounded-xl border border-gray-700 px-6 py-4 flex items-center gap-3">
+                                <span class="text-3xl">🏆</span>
+                                <div>
+                                    <div class="text-2xl font-bold text-white"><span id="achUnlockedCount">0</span> /
+                                        <span id="achTotalCount">0</span></div>
+                                    <div class="text-xs text-gray-500 font-medium">Achievements Unlocked</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Unlocked Achievements -->
+                        <div class="mb-8">
+                            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                <span class="text-green-400">✅</span> Unlocked
+                            </h3>
+                            <div id="achUnlockedList" class="space-y-3">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Locked Achievements -->
+                        <div>
+                            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                                <span class="text-gray-500">🔒</span> Locked
+                            </h3>
+                            <div id="achLockedList" class="space-y-3">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="statisticsView" class="view-section view-hidden">
+                    <div class="max-w-5xl mx-auto px-4 py-8">
+                        <h2 class="text-3xl font-extrabold text-white mb-8">Statistics</h2>
+
+                        <!-- Overview Cards -->
+                        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
+                            <div
+                                class="bg-gray-800 rounded-xl p-4 border border-gray-700 flex flex-col items-center justify-center text-center shadow-lg">
+                                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">🎮 Games
+                                </div>
+                                <div id="statPageTotalGames" class="text-2xl font-extrabold text-white">0</div>
+                            </div>
+                            <div
+                                class="bg-gray-800 rounded-xl p-4 border border-gray-700 flex flex-col items-center justify-center text-center shadow-lg">
+                                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">▶ Sessions
+                                </div>
+                                <div id="statPageTotalSessions" class="text-2xl font-extrabold text-white">0</div>
+                            </div>
+                            <div
+                                class="bg-gray-800 rounded-xl p-4 border border-gray-700 flex flex-col items-center justify-center text-center shadow-lg">
+                                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">⭐ Favorites
+                                </div>
+                                <div id="statPageTotalFavs" class="text-2xl font-extrabold text-white">0</div>
+                            </div>
+                            <div
+                                class="bg-gray-800 rounded-xl p-4 border border-gray-700 flex flex-col items-center justify-center text-center shadow-lg">
+                                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">🏆 Most
+                                    Played</div>
+                                <div id="statPageMostPlayed" class="text-sm font-bold text-white truncate w-full">—
+                                </div>
+                            </div>
+                            <div
+                                class="bg-gray-800 rounded-xl p-4 border border-gray-700 flex flex-col items-center justify-center text-center shadow-lg">
+                                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">🕒 Last
+                                    Played</div>
+                                <div id="statPageLastPlayed" class="text-sm font-bold text-white truncate w-full">—
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Per-Game Statistics -->
+                        <h3 class="text-xl font-bold text-white mb-4">Per-Game Statistics</h3>
+                        <div id="statPageGamesList" class="space-y-4">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <div id="settingsView" class="view-section view-hidden">
+                    <div class="max-w-2xl">
+                        <h2 class="text-3xl font-extrabold text-white mb-2">Settings</h2>
+                        <p class="text-gray-400 text-sm mb-8">Configure your launcher preferences.</p>
+
+                        <!-- General Settings -->
+                        <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden mb-6">
+                            <div class="px-5 py-3 border-b border-gray-700">
+                                <h3 class="text-xs font-bold uppercase tracking-widest text-gray-500">General</h3>
+                            </div>
+                            <div class="setting-row">
+                                <div>
+                                    <div class="text-sm font-medium text-white">Volume</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">Master audio volume</div>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <input type="range" id="settingVolume" min="0" max="100" value="80"
+                                        class="volume-slider w-28" oninput="updateSetting('volume', this.value)">
+                                    <span id="settingVolumeLabel"
+                                        class="text-xs text-gray-400 font-mono w-8 text-right">80</span>
+                                </div>
+                            </div>
+                            <div class="setting-row">
+                                <div>
+                                    <div class="text-sm font-medium text-white">Theme</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">Visual theme preference</div>
+                                </div>
+                                <span class="text-xs bg-gray-700 text-gray-500 px-2 py-1 rounded font-bold">Dark
+                                    (Default)</span>
+                            </div>
+                        </div>
+
+                        <!-- Data Settings -->
+                        <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden mb-6">
+                            <div class="px-5 py-3 border-b border-gray-700">
+                                <h3 class="text-xs font-bold uppercase tracking-widest text-gray-500">Data</h3>
+                            </div>
+                            <div class="setting-row">
+                                <div>
+                                    <div class="text-sm font-medium text-white">Storage Used</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">localStorage usage by Game Hub</div>
+                                </div>
+                                <span id="settingStorageSize" class="text-xs text-gray-400 font-mono">—</span>
+                            </div>
+                            <div class="setting-row">
+                                <div>
+                                    <div class="text-sm font-medium text-white">Reset All Data</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">Clear play history, favorites, and
+                                        settings</div>
+                                </div>
+                                <button onclick="confirmResetData()"
+                                    class="text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">Reset</button>
+                            </div>
+                        </div>
+
+                        <!-- About -->
+                        <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                            <div class="px-5 py-3 border-b border-gray-700">
+                                <h3 class="text-xs font-bold uppercase tracking-widest text-gray-500">About</h3>
+                            </div>
+                            <div class="setting-row">
+                                <div class="text-sm font-medium text-white">Game Hub</div>
+                                <span class="text-xs text-gray-400 font-mono">v1.0.0</span>
+                            </div>
+                            <div class="setting-row">
+                                <div class="text-sm font-medium text-white">Profile</div>
+                                <span id="settingProfile" class="text-xs text-gray-400 font-mono">default</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- Beta Warning Modal Overlay -->
+    <div id="betaModal"
+        class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-800 border border-amber-600 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
+            id="betaModalContent">
+
+            <div class="text-center mb-6">
+                <!-- Warning Icon -->
+                <svg class="h-12 w-12 text-amber-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                    </path>
+                </svg>
+
+                <h3 class="text-2xl font-bold text-white mb-2">Beta Version</h3>
+                <p class="text-gray-300">Are you sure you want to try the beta? There are new features, but things may
+                    break!</p>
+            </div>
+
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+                <button onclick="closeBetaModal()"
+                    class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">
+                    No, take me back
+                </button>
+                <button onclick="confirmBetaLaunch()"
+                    class="bg-amber-600 hover:bg-amber-500 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">
+                    Yes, play Beta!
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="./src/app.js"></script>
+
+</html>

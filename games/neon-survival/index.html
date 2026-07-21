@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Survival FPS</title>
+    <!-- 
+        =========================================
+        NEON SURVIVAL - GAME ENGINE
+        Version: 1.0.0
+        
+        Version Numbering Guide for Future Devs:
+        [Major].[Minor].[Patch]
+        - Major: Massive updates or rewrites (e.g., 2.0.0)
+        - Minor: Somewhat significant features features (e.g., 1.2.0 adds proper dynamic Biomes & color to Blimps)
+        - Patch: Bug fixes & balancing (e.g., 1.2.9 shrinks blimp hitbox for closer fly-bys)
+        =========================================
+    -->
+    <link rel="stylesheet" href="styles.css">
+    <script src="../../engine/three.min.js"></script>
+</head>
+
+<body>
+
+    <div id="loading-screen">
+        <h1 class="menu-title" style="animation: blinker 1s infinite;">INITIALIZING...</h1>
+        <p>Compiling Shaders & Allocating Memory Pool</p>
+    </div>
+
+    <div id="damage-flash"></div>
+    <div id="notification-container"></div>
+
+    <div id="ui-layer">
+        <div id="top-hud">
+            <div id="score-display" class="hud-text">SCORE: 0</div>
+            <div id="highscore-display" class="hud-text" style="color: #ff0; text-shadow: 0 0 5px #ff0;">BEST: 0</div>
+            <div id="health-display" class="hud-text" style="color: #f00; text-shadow: 0 0 5px #f00;">HEALTH: 250</div>
+        </div>
+
+        <div id="bottom-hud">
+            <div id="dash-display" class="status-text" style="color: #0ff; text-shadow: 0 0 5px #0ff;">DASH: READY</div>
+            <div id="weapon-display" class="status-text"
+                style="color: #ff8800; text-shadow: 0 0 5px #ff8800; display: none;">OVERDRIVE: ACTIVE</div>
+        </div>
+        <div id="crosshair">+</div>
+        <div id="indicator-container">
+            <div id="enemy-indicator">▲</div>
+        </div>
+    </div>
+
+    <div id="overlay" style="display: none;">
+        <div id="menu-container"></div>
+        <div id="version-text">v1.0.0 File overhaul update</div>
+    </div>
+
+    <script src="js/main.js"></script>
+</body>
+
+</html>

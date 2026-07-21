@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Sky Ace - Flight Simulator</title>
+    <!-- 
+        =========================================
+        SKY ACE - GAME ENGINE
+        Version: 2.0.0
+        
+        PLEASE READ THIS!!!
+        Version Numbering Guide for Future Devs:
+        FOR STABLE RELEASES:
+        [Major].[Minor].[Patch]
+        - Major: Massive updates or rewrites (e.g., 2.0.0)
+        - Minor: Somewhat significan features features (e.g., 1.2.0 adds proper dynamic Biomes & color to Blimps)
+        - Patch: Bug fixes & balancing (e.g., 1.2.9 shrinks blimp hitbox for closer fly-bys)
+        FOR BETA RELEASES:
+        - The version in creation (ex: 3.0.0) + -dev
+        - Final result (for example): 3.0.0-dev
+        =========================================
+    -->
+    <link rel="stylesheet" href="styles.css">
+    <script src="../../engine/three.min.js"></script>
+</head>
+
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-layer">
+        <div id="aim-reticle">
+            <div id="aim-dot"></div>
+        </div>
+
+        <div class="hud-panel">
+            <div class="hud-item">
+                <div class="hud-label">Speed</div>
+                <div class="hud-value" id="hud-speed">0</div>
+            </div>
+            <div class="hud-item">
+                <div class="hud-label">Score</div>
+                <div class="hud-value" id="score-display">0</div>
+            </div>
+            <div class="hud-item">
+                <div class="hud-label">Best</div>
+                <div class="hud-value" id="hud-best">0</div>
+            </div>
+            <div class="hud-item">
+                <div class="hud-label">Alt</div>
+                <div class="hud-value" id="hud-alt">0</div>
+            </div>
+        </div>
+
+        <div id="top-controls">
+            <button class="icon-btn" id="music-btn" title="Toggle Music (M)">🎵</button>
+            <button class="icon-btn" id="camera-btn" title="Toggle Camera (C)">🎥</button>
+            <button class="icon-btn" id="pause-btn" title="Pause Game (P)">⏸️</button>
+        </div>
+
+        <div id="throttle-label">PWR</div>
+        <div id="throttle-container">
+            <div id="throttle-bar"></div>
+        </div>
+
+        <div id="fuel-label">FUEL</div>
+        <div id="fuel-container">
+            <div id="fuel-bar"></div>
+        </div>
+
+        <div id="controls-hint">
+            Mouse/Touch to Steer &bull; Collect <span style="color:#4CAF50">Green</span> for BOOST! &bull; <span
+                style="color:#2196F3">Blue</span> for Fuel
+        </div>
+
+        <div id="message-area">
+            <h2 id="msg-title">Checkpoint!</h2>
+        </div>
+
+        <!-- Pop-up Toast for Achievements -->
+        <div id="achievement-toast">
+            <h3 id="ach-toast-title">Achievement Unlocked!</h3>
+            <p id="ach-toast-desc">Description goes here</p>
+        </div>
+    </div>
+
+    <!-- MAIN MENU -->
+    <div id="start-screen" class="tutorial-overlay">
+        <h1>SKY ACE</h1>
+        <div id="version-tag">v2.0.0</div>
+        <p id="menu-high-score" style="font-weight: bold; color: #ffd700; font-size: 1.5rem; margin: 0 0 10px 0;">Best
+            Score: 0</p>
+        <p>
+            Pilot your aircraft through the <b>Golden Rings</b>.<br>
+            Collect <b>Blue Canisters</b> to refuel.<br>
+            Hit <b>Green Rings</b> for SPEED BOOST.<br>
+            Avoid the Mountains and <b>Moving Blimps</b>!<br><br>
+            <span class="key">Mouse</span> or <span class="key">Touch</span> to steer.<br>
+            <span class="key">W</span> / <span class="key">S</span> or Slider for Throttle.<br>
+            <span class="key">C</span> Camera &bull; <span class="key">P</span> Pause
+        </p>
+
+        <div id="skin-selector">
+            <button class="skin-btn" id="prev-skin">
+                << /button>
+                    <span id="skin-name">Classic</span>
+                    <button class="skin-btn" id="next-skin">></button>
+        </div>
+
+        <button class="btn" id="start-btn">TAKE OFF</button>
+        <button class="btn" id="btn-open-achievements" style="background: #9b59b6;">🏆 ACHIEVEMENTS</button>
+        <button class="btn" id="launcher-btn-start" style="background: #3e5d9c;">Return to Launcher</button>
+    </div>
+
+    <!-- PAUSE MENU -->
+    <div id="pause-screen" class="tutorial-overlay" style="display: none;">
+        <h1>PAUSED</h1>
+        <button class="btn" id="resume-btn">RESUME FLIGHT</button>
+        <button class="btn" id="menu-btn-pause" style="background: #e74c3c;">MAIN MENU</button>
+        <button class="btn" id="launcher-btn-pause" style="background: #3e5d9c;">Return to Launcher</button>
+    </div>
+
+    <!-- GAME OVER SCREEN -->
+    <div id="game-over-screen" class="tutorial-overlay" style="display: none;">
+        <h1 id="game-over-title">GAME OVER</h1>
+        <h2 id="crash-reason" style="margin-top:0;">CRASH!</h2>
+        <div class="hud-value" id="final-score">Score: 0</div>
+        <button class="btn" id="restart-btn">RETRY</button>
+        <button class="btn" id="menu-btn-gameover" style="background: #e74c3c;">MAIN MENU</button>
+        <button class="btn" id="launcher-btn-gameover" style="background: #3e5d9c;">Return to Launcher</button>
+    </div>
+
+    <!-- ACHIEVEMENT TROPHY ROOM MODAL -->
+    <div id="achievement-modal">
+        <div class="modal-content">
+            <h2 class="modal-title">Trophy Room</h2>
+            <div class="ach-list" id="ach-list-container">
+                <!-- Achievements injected here via JS -->
+            </div>
+            <div class="btn btn-close" id="btn-close-achievements">CLOSE</div>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+</body>
+
+</html>

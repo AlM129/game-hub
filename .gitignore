@@ -1,0 +1,28 @@
+node_modules/
+dist/
+test-results/
+
+.DS_Store
+
+*.log
+
+.vscode/
+.idea/
+
+# Dependencies
+node_modules/
+
+# Electron builds
+dist/
+Game Hub-*/
+*.dmg
+*.pkg
+*.app
+
+# Test output
+test-results/
+
+# macOS
+.DS_Store
+.qwen/
+**/xcuserdata/
