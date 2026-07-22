@@ -1,21 +1,141 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const Store = require('electron-store').default;
 
-const store = new Store({
-    name: 'gamehub-data',
-    defaults: {
-        metadata: { version: 1, lastMigration: null },
-        profiles: {
-            default: {
-                settings: { volume: 80, theme: 'dark' },
-                achievements: {},
-                statistics: { totalSessions: 0, gamePlayHistory: {} },
-                saves: {}
+const SCHEMA_VERSION = 2;
+const DEFAULT_PROFILE_ID = 'default';
+const DEFAULT_PROFILE_NAME = 'Default';
+
+function nowIso() {
+    return new Date().toISOString();
+}
+
+function createDefaultProfile(id = DEFAULT_PROFILE_ID, overrides = {}) {
+    return {
+        id,
+        name: id === DEFAULT_PROFILE_ID ? DEFAULT_PROFILE_NAME : overrides.name || id,
+        type: id === DEFAULT_PROFILE_ID ? 'default' : overrides.type || 'custom',
+        settings: {
+            volume: 80,
+            theme: 'dark',
+            ...(overrides.settings || {})
+        },
+        achievements: { ...(overrides.achievements || {}) },
+        statistics: {
+            totalSessions: 0,
+            gamePlayHistory: {},
+            ...(overrides.statistics || {}),
+            gamePlayHistory: {
+                ...((overrides.statistics && overrides.statistics.gamePlayHistory) || {})
             }
         },
-        preferences: {}
+        saves: { ...(overrides.saves || {}) }
+    };
+}
+
+function normalizeProfile(id, profile = {}) {
+    const statistics = profile.statistics && typeof profile.statistics === 'object'
+        ? profile.statistics
+        : {};
+    const gamePlayHistory = statistics.gamePlayHistory && typeof statistics.gamePlayHistory === 'object'
+        ? statistics.gamePlayHistory
+        : {};
+
+    return {
+        ...profile,
+        id: profile.id || id,
+        name: profile.name || (id === DEFAULT_PROFILE_ID ? DEFAULT_PROFILE_NAME : id),
+        type: profile.type || (id === DEFAULT_PROFILE_ID ? 'default' : 'custom'),
+        settings: {
+            volume: 80,
+            theme: 'dark',
+            ...(profile.settings || {})
+        },
+        achievements: profile.achievements && typeof profile.achievements === 'object'
+            ? { ...profile.achievements }
+            : {},
+        statistics: {
+            totalSessions: Number(statistics.totalSessions || 0),
+            gamePlayHistory: { ...gamePlayHistory }
+        },
+        saves: profile.saves && typeof profile.saves === 'object' ? { ...profile.saves } : {}
+    };
+}
+
+function normalizeStore(rawStore = {}) {
+    const metadata = rawStore.metadata && typeof rawStore.metadata === 'object'
+        ? rawStore.metadata
+        : {};
+    const rawProfiles = rawStore.profiles && typeof rawStore.profiles === 'object'
+        ? rawStore.profiles
+        : {};
+    const profiles = {};
+
+    for (const [profileId, profile] of Object.entries(rawProfiles)) {
+        profiles[profileId] = normalizeProfile(profileId, profile);
     }
+
+    if (!profiles[DEFAULT_PROFILE_ID]) {
+        profiles[DEFAULT_PROFILE_ID] = createDefaultProfile(DEFAULT_PROFILE_ID, {
+            settings: rawStore.settings,
+            achievements: rawStore.achievements,
+            statistics: rawStore.statistics || {
+                totalSessions: rawStore.totalSessions,
+                gamePlayHistory: rawStore.games
+            },
+            saves: rawStore.saves
+        });
+    }
+
+    const activeProfileId = profiles[metadata.activeProfileId] ? metadata.activeProfileId : DEFAULT_PROFILE_ID;
+    const createdAt = metadata.createdAt || rawStore.createdAt || nowIso();
+    const lastMigration = metadata.lastMigration ?? rawStore.lastMigration ?? null;
+
+    return {
+        ...rawStore,
+        metadata: {
+            ...metadata,
+            schemaVersion: SCHEMA_VERSION,
+            version: SCHEMA_VERSION,
+            activeProfileId,
+            createdAt,
+            lastMigration
+        },
+        profiles,
+        preferences: rawStore.preferences && typeof rawStore.preferences === 'object'
+            ? { ...rawStore.preferences }
+            : {}
+    };
+}
+
+function generateProfileId(name, existingProfiles) {
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'profile';
+    let id = base;
+    let counter = 1;
+    while (existingProfiles[id]) {
+        id = `${base}-${counter}`;
+        counter++;
+    }
+    return id;
+}
+
+const store = new Store({
+    name: 'gamehub-data',
+    defaults: normalizeStore({
+        metadata: {
+            schemaVersion: SCHEMA_VERSION,
+            version: SCHEMA_VERSION,
+            activeProfileId: DEFAULT_PROFILE_ID,
+            createdAt: nowIso(),
+            lastMigration: null
+        },
+        profiles: {
+            [DEFAULT_PROFILE_ID]: createDefaultProfile(DEFAULT_PROFILE_ID)
+        },
+        preferences: {}
+    })
 });
+
+store.store = normalizeStore(store.store);
 
 
 function createWindow() {
@@ -44,6 +164,7 @@ app.whenReady().then(() => {
 
     ipcMain.handle('storage:set', (event, key, value) => {
         store.set(key, value);
+        store.store = normalizeStore(store.store);
         return true;
     });
 
@@ -57,57 +178,216 @@ app.whenReady().then(() => {
     });
 
     ipcMain.handle('storage:migrate', (event, data) => {
-        const profilePath = 'profiles.default';
-        
+        const profileId = store.get('metadata.activeProfileId') || DEFAULT_PROFILE_ID;
+        const profilePath = `profiles.${profileId}`;
+        const existingProfile = normalizeProfile(profileId, store.get(profilePath) || {});
+        const mergedAchievements = {
+            ...(existingProfile.achievements || {})
+        };
+        const mergedGameStats = {
+            ...((existingProfile.statistics && existingProfile.statistics.gamePlayHistory) || {})
+        };
+        const mergedSaves = {
+            ...(existingProfile.saves || {})
+        };
+
         if (data.settings) {
             store.set(`${profilePath}.settings`, {
+                ...(existingProfile.settings || {}),
                 volume: data.settings.volume ?? 80,
                 theme: data.settings.theme ?? 'dark'
             });
         }
-        
+
         if (data.achievements) {
-            store.set(`${profilePath}.achievements`, data.achievements);
+            for (const [gameId, gameAchievements] of Object.entries(data.achievements)) {
+                mergedAchievements[gameId] = {
+                    ...(mergedAchievements[gameId] || {}),
+                    ...gameAchievements
+                };
+            }
+            store.set(`${profilePath}.achievements`, mergedAchievements);
         }
-        
+
         if (data.games) {
-            const gameStats = {};
             for (const [gameId, gameData] of Object.entries(data.games)) {
-                gameStats[gameId] = {
+                mergedGameStats[gameId] = {
                     lastPlayed: gameData.lastPlayed || null,
                     playCount: gameData.playCount || 0,
                     favorite: gameData.favorite || false,
                     activeChannel: gameData.activeChannel || 'stable'
                 };
             }
-            store.set(`${profilePath}.statistics.gamePlayHistory`, gameStats);
+            store.set(`${profilePath}.statistics.gamePlayHistory`, mergedGameStats);
         }
-        
+
         if (data.gameUpdateHistory) {
-            store.set(`${profilePath}.saves.updateHistory`, data.gameUpdateHistory);
+            mergedSaves.updateHistory = {
+                ...(mergedSaves.updateHistory || {}),
+                ...data.gameUpdateHistory
+            };
+            store.set(`${profilePath}.saves`, mergedSaves);
         }
-        
-        store.set('metadata.lastMigration', Date.now());
-        store.set('metadata.version', 1);
-        
+
+        store.set('metadata.lastMigration', {
+            fromSchemaVersion: store.get('metadata.schemaVersion') || 1,
+            toSchemaVersion: SCHEMA_VERSION,
+            at: nowIso(),
+            source: 'legacy-localStorage'
+        });
+        store.set('metadata.schemaVersion', SCHEMA_VERSION);
+        store.set('metadata.version', SCHEMA_VERSION);
+        store.store = normalizeStore(store.store);
+
         return true;
     });
 
     ipcMain.handle('storage:export', () => {
-        return store.store;
+        return normalizeStore(store.store);
     });
 
     ipcMain.handle('storage:import', (event, data) => {
-        store.store = data;
+        store.store = normalizeStore(data);
         return true;
     });
 
     ipcMain.handle('storage:resetGameData', () => {
-        const profilePath = 'profiles.default';
-        store.delete(`${profilePath}.achievements`);
-        store.delete(`${profilePath}.statistics`);
-        store.delete(`${profilePath}.saves`);
+        const activeProfileId = store.get('metadata.activeProfileId') || DEFAULT_PROFILE_ID;
+        const profilePath = `profiles.${activeProfileId}`;
+        const profile = normalizeProfile(activeProfileId, store.get(profilePath) || {});
+        store.set(`${profilePath}.achievements`, {});
+        store.set(`${profilePath}.statistics`, {
+            totalSessions: 0,
+            gamePlayHistory: {}
+        });
+        store.set(`${profilePath}.saves`, {});
+        store.set(`${profilePath}.settings`, profile.settings || { volume: 80, theme: 'dark' });
+        store.store = normalizeStore(store.store);
         return true;
+    });
+
+    // ==========================================
+    // Profiles IPC Handlers
+    // ==========================================
+
+    ipcMain.handle('profiles:list', () => {
+        const profiles = store.get('profiles') || {};
+        return profiles;
+    });
+
+    ipcMain.handle('profiles:get', () => {
+        const activeProfileId = store.get('metadata.activeProfileId') || DEFAULT_PROFILE_ID;
+        const profilePath = `profiles.${activeProfileId}`;
+        return normalizeProfile(activeProfileId, store.get(profilePath) || {});
+    });
+
+    ipcMain.handle('profiles:create', (event, name, overrides) => {
+        const profiles = store.get('profiles') || {};
+        const id = generateProfileId(name, profiles);
+
+        const profile = {
+            id,
+            name: name.trim(),
+            type: 'custom',
+            settings: { volume: 80, theme: 'dark', ...(overrides?.settings || {}) },
+            achievements: { ...(overrides?.achievements || {}) },
+            statistics: {
+                totalSessions: 0,
+                gamePlayHistory: {},
+                ...(overrides?.statistics || {}),
+                gamePlayHistory: {
+                    ...((overrides?.statistics && overrides.statistics.gamePlayHistory) || {})
+                }
+            },
+            saves: { ...(overrides?.saves || {}) },
+            createdAt: nowIso()
+        };
+
+        store.set(`profiles.${id}`, normalizeProfile(id, profile));
+        store.store = normalizeStore(store.store);
+        return store.get(`profiles.${id}`);
+    });
+
+    ipcMain.handle('profiles:switch', (event, profileId) => {
+        const profiles = store.get('profiles') || {};
+        if (!profiles[profileId]) {
+            throw new Error(`Profile not found: ${profileId}`);
+        }
+        store.set('metadata.activeProfileId', profileId);
+        store.store = normalizeStore(store.store);
+        return profileId;
+    });
+
+    ipcMain.handle('profiles:delete', (event, profileId) => {
+        if (profileId === DEFAULT_PROFILE_ID) {
+            throw new Error('Cannot delete the default profile');
+        }
+        const profiles = store.get('profiles') || {};
+        if (!profiles[profileId]) {
+            return false;
+        }
+        store.delete(`profiles.${profileId}`);
+
+        const remainingProfiles = store.get('profiles') || {};
+        if (Object.keys(remainingProfiles).length === 0) {
+            store.set(`profiles.${DEFAULT_PROFILE_ID}`, createDefaultProfile(DEFAULT_PROFILE_ID));
+        }
+
+        const activeProfileId = store.get('metadata.activeProfileId') || DEFAULT_PROFILE_ID;
+        if (activeProfileId === profileId) {
+            store.set('metadata.activeProfileId', DEFAULT_PROFILE_ID);
+        }
+
+        store.store = normalizeStore(store.store);
+        return true;
+    });
+
+    ipcMain.handle('profiles:exportProfile', (event, profileId) => {
+        const profiles = store.get('profiles') || {};
+        if (!profiles[profileId]) {
+            throw new Error(`Profile not found: ${profileId}`);
+        }
+        const profile = normalizeProfile(profileId, profiles[profileId]);
+        return {
+            id: profile.id,
+            name: profile.name,
+            type: profile.type,
+            settings: { ...profile.settings },
+            achievements: JSON.parse(JSON.stringify(profile.achievements)),
+            statistics: JSON.parse(JSON.stringify(profile.statistics)),
+            saves: JSON.parse(JSON.stringify(profile.saves)),
+            exportedAt: nowIso()
+        };
+    });
+
+    ipcMain.handle('profiles:importProfile', (event, data) => {
+        if (!data || !data.name) {
+            throw new Error('Invalid profile data: name is required');
+        }
+
+        const profiles = store.get('profiles') || {};
+        let id = data.id;
+        if (profiles[id]) {
+            id = generateProfileId(data.name, profiles);
+        }
+
+        const profile = {
+            id,
+            name: data.name,
+            type: data.type || 'custom',
+            settings: { volume: 80, theme: 'dark', ...(data.settings || {}) },
+            achievements: { ...(data.achievements || {}) },
+            statistics: {
+                totalSessions: Number(data.statistics?.totalSessions || 0),
+                gamePlayHistory: { ...((data.statistics && data.statistics.gamePlayHistory) || {}) }
+            },
+            saves: { ...(data.saves || {}) },
+            createdAt: nowIso()
+        };
+
+        store.set(`profiles.${id}`, normalizeProfile(id, profile));
+        store.store = normalizeStore(store.store);
+        return store.get(`profiles.${id}`);
     });
 
     createWindow();

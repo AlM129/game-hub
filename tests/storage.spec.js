@@ -319,3 +319,247 @@ test('export and import data', async () => {
         await app.close();
     });
 });
+
+test.describe('Profiles System', () => {
+    test.beforeEach(async ({}, testInfo) => {
+        testInfo.setTimeout(testTimeout);
+    });
+
+    test('profile isolation: data in one profile is not visible in another', async () => {
+        const app = await launchGameHub();
+        const window = await waitForLauncher(app);
+
+        // Create a second profile
+        const profile2 = await window.evaluate(async () => {
+            return await window.profiles.create('Test Profile');
+        });
+        expect(profile2).toBeDefined();
+        expect(profile2.id).toBe('test-profile');
+        expect(profile2.name).toBe('Test Profile');
+
+        // Write data to default profile (currently active)
+        await window.evaluate(async () => {
+            await window.storage.set('profiles.default.settings.volume', 42);
+            await window.storage.set('profiles.default.statistics.gamePlayHistory.test-game', {
+                playCount: 10, lastPlayed: '2026-07-20', favorite: true, activeChannel: 'stable'
+            });
+        });
+
+        // Write data to the second profile
+        await window.evaluate(async (id) => {
+            await window.storage.set(`profiles.${id}.settings.volume`, 99);
+            await window.storage.set(`profiles.${id}.statistics.gamePlayHistory.test-game`, {
+                playCount: 5, lastPlayed: '2026-07-21', favorite: false, activeChannel: 'beta'
+            });
+        }, profile2.id);
+
+        // Verify default profile data is intact
+        const defaultVolume = await window.evaluate(async () => {
+            return await window.storage.get('profiles.default.settings.volume');
+        });
+        expect(defaultVolume).toBe(42);
+
+        // Verify second profile data is separate
+        const p2Volume = await window.evaluate(async (id) => {
+            return await window.storage.get(`profiles.${id}.settings.volume`);
+        }, profile2.id);
+        expect(p2Volume).toBe(99);
+
+        // Verify default profile game stats
+        const defaultGame = await window.evaluate(async () => {
+            return await window.storage.get('profiles.default.statistics.gamePlayHistory.test-game');
+        });
+        expect(defaultGame.playCount).toBe(10);
+        expect(defaultGame.favorite).toBe(true);
+
+        // Verify second profile game stats are different
+        const p2Game = await window.evaluate(async (id) => {
+            return await window.storage.get(`profiles.${id}.statistics.gamePlayHistory.test-game`);
+        }, profile2.id);
+        expect(p2Game.playCount).toBe(5);
+        expect(p2Game.favorite).toBe(false);
+
+        await app.close();
+    });
+
+    test('active profile switching changes data context', async () => {
+        const app = await launchGameHub();
+        const window = await waitForLauncher(app);
+
+        // Create additional profiles
+        await window.evaluate(async () => {
+            await window.profiles.create('Gamer');
+        });
+
+        // Write data to each profile via direct keys
+        await window.evaluate(async () => {
+            await window.storage.set('profiles.default.settings.volume', 10);
+            await window.storage.set('profiles.gamer.settings.volume', 80);
+        });
+
+        // Verify default is active
+        const activeBefore = await window.evaluate(async () => {
+            return await window.storage.get('metadata.activeProfileId');
+        });
+        expect(activeBefore).toBe('default');
+
+        // Switch to the 'gamer' profile
+        const switchedId = await window.evaluate(async () => {
+            return await window.profiles.switch('gamer');
+        });
+        expect(switchedId).toBe('gamer');
+
+        // Verify active profile changed
+        const activeAfter = await window.evaluate(async () => {
+            return await window.storage.get('metadata.activeProfileId');
+        });
+        expect(activeAfter).toBe('gamer');
+
+        // Switch back to default
+        await window.evaluate(async () => {
+            await window.profiles.switch('default');
+        });
+
+        const activeFinal = await window.evaluate(async () => {
+            return await window.storage.get('metadata.activeProfileId');
+        });
+        expect(activeFinal).toBe('default');
+
+        await app.close();
+    });
+
+    test('achievement persistence across profiles', async () => {
+        const app = await launchGameHub();
+        const window = await waitForLauncher(app);
+
+        // Create a second profile
+        await window.evaluate(async () => {
+            await window.profiles.create('Achiever');
+        });
+
+        // Store achievements in default profile
+        await window.evaluate(async () => {
+            const achievements = {
+                gamehub: {
+                    first_launch: { unlocked: true, date: '2026-07-10' },
+                    collector: { unlocked: true, date: '2026-07-11' }
+                }
+            };
+            await window.storage.set('profiles.default.achievements', achievements);
+        });
+
+        // Store achievements in achiever profile
+        await window.evaluate(async () => {
+            const achievements = {
+                'neon-survival': {
+                    first_kill: { unlocked: true, date: '2026-07-12' }
+                }
+            };
+            await window.storage.set('profiles.achiever.achievements', achievements);
+        });
+
+        // Verify default profile achievements
+        const defaultAchs = await window.evaluate(async () => {
+            return await window.storage.get('profiles.default.achievements');
+        });
+        expect(defaultAchs.gamehub.first_launch.unlocked).toBe(true);
+        expect(defaultAchs.gamehub.collector.unlocked).toBe(true);
+
+        // Verify achiever profile achievements are separate
+        const achieverAchs = await window.evaluate(async () => {
+            return await window.storage.get('profiles.achiever.achievements');
+        });
+        expect(achieverAchs['neon-survival'].first_kill.unlocked).toBe(true);
+        // Achiever profile should NOT have gamehub achievements
+        expect(achieverAchs.gamehub).toBeUndefined();
+
+        await app.close();
+    });
+
+    test('statistics persistence across profiles', async () => {
+        const app = await launchGameHub();
+        const window = await waitForLauncher(app);
+
+        // Create a second profile
+        await window.evaluate(async () => {
+            await window.profiles.create('StatsGuru');
+        });
+
+        // Store statistics in default profile
+        await window.evaluate(async () => {
+            const stats = {
+                totalSessions: 42,
+                gamePlayHistory: {
+                    'sky-ace': { playCount: 15, lastPlayed: '2026-07-20', favorite: true, activeChannel: 'stable' },
+                    'neon-survival': { playCount: 8, lastPlayed: '2026-07-19', favorite: false, activeChannel: 'stable' }
+                }
+            };
+            await window.storage.set('profiles.default.statistics', stats);
+        });
+
+        // Store statistics in statsguru profile
+        await window.evaluate(async () => {
+            const stats = {
+                totalSessions: 7,
+                gamePlayHistory: {
+                    'tactical-drone-defense': { playCount: 7, lastPlayed: '2026-07-18', favorite: true, activeChannel: 'stable' }
+                }
+            };
+            await window.storage.set('profiles.statsguru.statistics', stats);
+        });
+
+        // Verify default profile statistics
+        const defaultStats = await window.evaluate(async () => {
+            return await window.storage.get('profiles.default.statistics');
+        });
+        expect(defaultStats.totalSessions).toBe(42);
+        expect(defaultStats.gamePlayHistory['sky-ace'].playCount).toBe(15);
+        expect(defaultStats.gamePlayHistory['neon-survival'].playCount).toBe(8);
+
+        // Verify statsguru profile statistics
+        const statsGuru = await window.evaluate(async () => {
+            return await window.storage.get('profiles.statsguru.statistics');
+        });
+        expect(statsGuru.totalSessions).toBe(7);
+        expect(statsGuru.gamePlayHistory['tactical-drone-defense'].playCount).toBe(7);
+        // StatsGuru should NOT have sky-ace stats
+        expect(statsGuru.gamePlayHistory['sky-ace']).toBeUndefined();
+
+        await app.close();
+    });
+
+    test('delete profile removes data and falls back to default', async () => {
+        const app = await launchGameHub();
+        const window = await waitForLauncher(app);
+
+        // Create a profile
+        const profile = await window.evaluate(async () => {
+            return await window.profiles.create('TempProfile');
+        });
+        expect(profile.id).toBe('tempprofile');
+
+        // Write some data to it
+        await window.evaluate(async (id) => {
+            await window.storage.set(`profiles.${id}.settings.volume`, 55);
+        }, profile.id);
+
+        // Switch to it
+        await window.evaluate(async (id) => {
+            await window.profiles.switch(id);
+        }, profile.id);
+
+        // Delete it
+        const deleted = await window.evaluate(async (id) => {
+            return await window.profiles.delete(id);
+        }, profile.id);
+        expect(deleted).toBe(true);
+
+        // Verify active profile fell back to default
+        const activeId = await window.evaluate(async () => {
+            return await window.storage.get('metadata.activeProfileId');
+        });
+        expect(activeId).toBe('default');
+
+        await app.close();
+    });
+});

@@ -9,3 +9,13 @@ contextBridge.exposeInMainWorld('storage', {
     migrate: (data) => ipcRenderer.invoke('storage:migrate', data),
     resetGameData: () => ipcRenderer.invoke('storage:resetGameData')
 });
+
+contextBridge.exposeInMainWorld('profiles', {
+    list: () => ipcRenderer.invoke('profiles:list'),
+    get: () => ipcRenderer.invoke('profiles:get'),
+    create: (name, overrides) => ipcRenderer.invoke('profiles:create', name, overrides),
+    switch: (profileId) => ipcRenderer.invoke('profiles:switch', profileId),
+    delete: (profileId) => ipcRenderer.invoke('profiles:delete', profileId),
+    exportProfile: (profileId) => ipcRenderer.invoke('profiles:exportProfile', profileId),
+    importProfile: (data) => ipcRenderer.invoke('profiles:importProfile', data)
+});

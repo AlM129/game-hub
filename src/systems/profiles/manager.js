@@ -1,25 +1,187 @@
 // ==========================================
 // PROFILES MANAGER
 // ==========================================
-// Handles user profile management
-// Future implementation will support multiple user profiles
+// Foundation API for user profile management.
+// Backed by CoreStorage which handles persistence.
+// No UI — this is the data layer only.
 
-export function initialize() {
+import { Storage as CoreStorage } from '../../core/storage.js';
+
+const DEFAULT_PROFILE = 'default';
+
+function nowIso() {
+    return new Date().toISOString();
+}
+
+/**
+ * Get all profiles.
+ * @returns {Promise<Object>} Map of profileId -> profile
+ */
+export async function getProfiles() {
+    return await CoreStorage.getProfiles();
+}
+
+/**
+ * Get the active profile object.
+ * @returns {Promise<Object|null>}
+ */
+export async function getActiveProfile() {
+    return await CoreStorage.getProfile();
+}
+
+/**
+ * Create a new profile.
+ * @param {string} name - Display name for the profile
+ * @param {Object} [overrides] - Optional overrides for settings/achievements/etc.
+ * @returns {Promise<Object>} The created profile
+ */
+export async function createProfile(name, overrides = {}) {
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        throw new Error('Profile name is required');
+    }
+
+    const profiles = await CoreStorage.getProfiles();
+    const id = generateProfileId(name, profiles);
+
+    const profile = {
+        id,
+        name: name.trim(),
+        type: 'custom',
+        settings: { volume: 80, theme: 'dark', ...(overrides.settings || {}) },
+        achievements: { ...(overrides.achievements || {}) },
+        statistics: {
+            totalSessions: 0,
+            gamePlayHistory: {},
+            ...(overrides.statistics || {}),
+            gamePlayHistory: {
+                ...((overrides.statistics && overrides.statistics.gamePlayHistory) || {})
+            }
+        },
+        saves: { ...(overrides.saves || {}) },
+        createdAt: nowIso()
+    };
+
+    await CoreStorage.setProfile(id, profile);
+    return profile;
+}
+
+/**
+ * Switch the active profile.
+ * @param {string} profileId
+ * @returns {Promise<string>} The active profile ID
+ */
+export async function switchProfile(profileId) {
+    const profiles = await CoreStorage.getProfiles();
+    if (!profiles[profileId]) {
+        throw new Error(`Profile not found: ${profileId}`);
+    }
+    return await CoreStorage.setActiveProfileId(profileId);
+}
+
+/**
+ * Delete a profile. Cannot delete the 'default' profile.
+ * If the deleted profile was active, falls back to 'default'.
+ * @param {string} profileId
+ * @returns {Promise<boolean>} Whether deletion succeeded
+ */
+export async function deleteProfile(profileId) {
+    if (profileId === DEFAULT_PROFILE) {
+        throw new Error('Cannot delete the default profile');
+    }
+    return await CoreStorage.deleteProfile(profileId);
+}
+
+/**
+ * Export a profile as a portable JSON object.
+ * @param {string} profileId
+ * @returns {Promise<Object>} Serializable profile data
+ */
+export async function exportProfile(profileId) {
+    const profiles = await CoreStorage.getProfiles();
+    const profile = profiles[profileId];
+    if (!profile) {
+        throw new Error(`Profile not found: ${profileId}`);
+    }
+    return {
+        id: profile.id,
+        name: profile.name,
+        type: profile.type,
+        settings: { ...profile.settings },
+        achievements: JSON.parse(JSON.stringify(profile.achievements)),
+        statistics: JSON.parse(JSON.stringify(profile.statistics)),
+        saves: JSON.parse(JSON.stringify(profile.saves)),
+        exportedAt: nowIso()
+    };
+}
+
+/**
+ * Import a profile from a portable JSON object.
+ * If a profile with the same ID exists, a new ID is generated.
+ * @param {Object} data - Profile data (as exported by exportProfile)
+ * @returns {Promise<Object>} The imported profile
+ */
+export async function importProfile(data) {
+    if (!data || !data.name) {
+        throw new Error('Invalid profile data: name is required');
+    }
+
+    const profiles = await CoreStorage.getProfiles();
+    let id = data.id;
+
+    // If ID already exists, generate a new one
+    if (profiles[id]) {
+        id = generateProfileId(data.name, profiles);
+    }
+
+    const profile = {
+        id,
+        name: data.name,
+        type: data.type || 'custom',
+        settings: { volume: 80, theme: 'dark', ...(data.settings || {}) },
+        achievements: { ...(data.achievements || {}) },
+        statistics: {
+            totalSessions: Number(data.statistics?.totalSessions || 0),
+            gamePlayHistory: { ...((data.statistics && data.statistics.gamePlayHistory) || {}) }
+        },
+        saves: { ...(data.saves || {}) },
+        createdAt: nowIso()
+    };
+
+    await CoreStorage.setProfile(id, profile);
+    return profile;
+}
+
+/**
+ * Initialize the profiles system.
+ * Ensures the default profile exists.
+ */
+export async function initialize() {
+    const profiles = await CoreStorage.getProfiles();
+    if (!profiles[DEFAULT_PROFILE]) {
+        await CoreStorage.setProfile(DEFAULT_PROFILE, {
+            id: DEFAULT_PROFILE,
+            name: 'Default',
+            type: 'default',
+            settings: { volume: 80, theme: 'dark' },
+            achievements: {},
+            statistics: { totalSessions: 0, gamePlayHistory: {} },
+            saves: {}
+        });
+    }
     console.log('Profiles system initialized');
 }
 
-// Placeholder for future profile management functionality
-export function getCurrentProfile() {
-    // TODO: Implement profile retrieval
-    return 'default';
-}
+// ==========================================
+// INTERNAL HELPERS
+// ==========================================
 
-export function createProfile(name) {
-    // TODO: Implement profile creation
-    return false;
-}
-
-export function switchProfile(name) {
-    // TODO: Implement profile switching
-    return false;
+function generateProfileId(name, existingProfiles) {
+    const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'profile';
+    let id = base;
+    let counter = 1;
+    while (existingProfiles[id]) {
+        id = `${base}-${counter}`;
+        counter++;
+    }
+    return id;
 }
