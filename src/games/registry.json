@@ -19,7 +19,15 @@
       "path": "games/tactical-drone-defense/",
       "description": "Defend your base from waves of enemy drones in this strategic tower defense game.",
       "thumbnail": "cover.png",
-      "featured": true
+      "featured": true,
+      "source": "bundled",
+      "package": {
+        "available": false,
+        "url": null,
+        "size": null,
+        "checksum": null,
+        "format": null
+      }
     },
     {
       "id": "sky-ace",
@@ -28,7 +36,15 @@
       "path": "games/sky-ace/",
       "description": "Take to the skies in this thrilling aerial combat game.",
       "thumbnail": "cover.png",
-      "featured": false
+      "featured": false,
+      "source": "bundled",
+      "package": {
+        "available": false,
+        "url": null,
+        "size": null,
+        "checksum": null,
+        "format": null
+      }
     },
     {
       "id": "neon-survival",
@@ -37,7 +53,15 @@
       "path": "games/neon-survival/",
       "description": "Survive the neon-lit dystopia in this action-packed adventure.",
       "thumbnail": "cover.png",
-      "featured": false
+      "featured": false,
+      "source": "bundled",
+      "package": {
+        "available": false,
+        "url": null,
+        "size": null,
+        "checksum": null,
+        "format": null
+      }
     }
   ]
 }

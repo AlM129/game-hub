@@ -269,6 +269,53 @@ const SoundManager = {
     }
 };
 
+// ==========================================
+// PROFILE-AWARE STORAGE
+// ==========================================
+// Read the active Game Hub profile ID from the URL query parameter.
+// This ensures each Game Hub profile has its own isolated save data.
+
+const PROFILE_ID = new URLSearchParams(location.search).get('profile') || 'default';
+
+/**
+ * Get a profile-specific localStorage key for Sky Ace data.
+ * @param {string} key - The base key name (e.g., 'achievements', 'highscore')
+ * @returns {string} The profile-scoped key
+ */
+function profileKey(key) {
+    return `skyace_${PROFILE_ID}_${key}`;
+}
+
+/**
+ * Migrate old (non-profile) Sky Ace data to the current profile's storage.
+ * This runs once per profile and does not delete old data.
+ */
+function migrateOldData() {
+    const OLD_ACH_KEY = 'skyAceAchievementsV3';
+    const OLD_HIGHSCORE_KEY = 'skyAceHighScore';
+    const NEW_ACH_KEY = profileKey('achievements');
+    const NEW_HIGHSCORE_KEY = profileKey('highscore');
+
+    // Migrate achievements
+    const oldAch = localStorage.getItem(OLD_ACH_KEY);
+    const newAch = localStorage.getItem(NEW_ACH_KEY);
+    if (oldAch !== null && newAch === null) {
+        localStorage.setItem(NEW_ACH_KEY, oldAch);
+        console.log(`Sky Ace: Migrated achievements to profile "${PROFILE_ID}"`);
+    }
+
+    // Migrate high score
+    const oldScore = localStorage.getItem(OLD_HIGHSCORE_KEY);
+    const newScore = localStorage.getItem(NEW_HIGHSCORE_KEY);
+    if (oldScore !== null && newScore === null) {
+        localStorage.setItem(NEW_HIGHSCORE_KEY, oldScore);
+        console.log(`Sky Ace: Migrated high score to profile "${PROFILE_ID}"`);
+    }
+}
+
+// Run migration on load
+migrateOldData();
+
 // --- Achievement System (Progression) ---
 const defaultAchievements = {
     // Trainee (Tier 0)
@@ -287,7 +334,7 @@ const defaultAchievements = {
     ace_rings: { title: "Dragon's Hoard", desc: "Collect 100 rings in one flight.", icon: "🐉", unlocked: false, tier: 2 }
 };
 
-let savedAchievements = JSON.parse(localStorage.getItem('skyAceAchievementsV3'));
+let savedAchievements = JSON.parse(localStorage.getItem(profileKey('achievements')));
 let achievements = savedAchievements ? savedAchievements : defaultAchievements;
 
 let ringsCollected = 0;
@@ -333,7 +380,7 @@ function unlockAchievement(id) {
         if (ach.tier > currentTier) return;
 
         ach.unlocked = true;
-        localStorage.setItem('skyAceAchievementsV3', JSON.stringify(achievements));
+        localStorage.setItem(profileKey('achievements'), JSON.stringify(achievements));
 
         reportToGameHub(id);
 
@@ -382,7 +429,7 @@ let gameActive = false;
 let isPaused = false;
 let isEjecting = false;
 let score = 0;
-let highScore = localStorage.getItem('skyAceHighScore') || 0;
+let highScore = localStorage.getItem(profileKey('highscore')) || 0;
 let isCockpitView = false;
 let explosionParticles = [];
 let timeOfDay = 0;
@@ -1614,7 +1661,7 @@ function crash(reason, ejected = false) {
 
     if (score > highScore) {
         highScore = score;
-        localStorage.setItem('skyAceHighScore', highScore);
+        localStorage.setItem(profileKey('highscore'), highScore);
         hudBest.innerText = highScore;
     }
 

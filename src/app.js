@@ -4,7 +4,7 @@
 // Thin entry point that wires all modules together
 
 import { Storage } from './storage.js';
-import { getGames, loadGameManifests, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog, getFeaturedGameId } from './games/loader.js';
+import { getGames, loadGameManifests, detectBundledGames, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog, getFeaturedGameId } from './games/loader.js';
 import { initialize as initAchievements, achievements, getAchievementDefinitions, addGameAchievements, RARITY_CONFIG } from './systems/achievements/manager.js';
 import { navigateTo } from './core/router.js';
 import { GameHub } from './core/events.js';
@@ -22,6 +22,7 @@ let currentView = 'home';
 let previousView = 'home';
 let pendingBetaUrl = null;
 let currentSearchTerm = '';
+let currentLibraryFilter = 'all';
 let currentDetailGameId = null;
 
 // ==========================================
@@ -36,7 +37,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Step 2: Load game manifests from game.json files
         await loadGameManifests();
 
-        // Step 3: Initialize achievements system
+        // Step 3: Detect and register bundled games as installed
+        await detectBundledGames();
+
+        // Step 4: Initialize achievements system
         initAchievements();
 
         // Step 4: Set up event listeners
@@ -203,6 +207,9 @@ async function renderHome() {
             recentContainer.innerHTML = '<p class="text-gray-600 text-sm col-span-3">No games played yet. Launch a game to start tracking!</p>';
         } else {
             recent.forEach((game, index) => {
+                const installedIndicator = game.installed
+                    ? '<span class="installed-badge" style="font-size:8px;padding:0 0.375rem;">✓</span>'
+                    : '';
                 const card = document.createElement('div');
                 card.className = `bg-gray-800 rounded-xl overflow-hidden border border-gray-700 game-card cursor-pointer group flex gap-4 p-4 card-animate ${game.theme.borderHover}`;
                 card.style.animationDelay = `${index * 80}ms`;
@@ -213,7 +220,7 @@ async function renderHome() {
                         <img src="${game.path + game.cover}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover z-10" onerror="this.style.opacity='0';">
                     </div>
                     <div class="flex flex-col justify-center min-w-0">
-                        <h4 class="text-white font-bold text-sm truncate">${game.title}</h4>
+                        <h4 class="text-white font-bold text-sm truncate flex items-center gap-1.5">${installedIndicator} ${game.title}</h4>
                         <p class="text-gray-500 text-xs mt-0.5">${formatLastPlayed(game.lastPlayed)}</p>
                         <p class="text-gray-600 text-[11px] mt-0.5">${game.playCount} session${game.playCount !== 1 ? 's' : ''}</p>
                     </div>
@@ -252,9 +259,19 @@ async function renderLibrary(filterTerm = '') {
     grid.innerHTML = '';
 
     const allWithData = await getAllGamesWithPlayData(Storage);
-    const filtered = filterTerm
-        ? allWithData.filter(g => g.title.toLowerCase().includes(filterTerm.toLowerCase()))
-        : allWithData;
+
+    // Apply installation filter first
+    let filtered = allWithData;
+    if (currentLibraryFilter === 'installed') {
+        filtered = filtered.filter(g => g.installed);
+    } else if (currentLibraryFilter === 'not_installed') {
+        filtered = filtered.filter(g => !g.installed);
+    }
+
+    // Then apply search term filter
+    if (filterTerm) {
+        filtered = filtered.filter(g => g.title.toLowerCase().includes(filterTerm.toLowerCase()));
+    }
 
     if (filtered.length === 0) {
         noResults.classList.remove('hidden');
@@ -264,6 +281,9 @@ async function renderLibrary(filterTerm = '') {
 
     filtered.forEach((game, index) => {
         const favBadge = game.favorite ? '<span class="text-yellow-400 text-xs">⭐</span>' : '';
+        const installedBadge = game.installed
+            ? '<span class="installed-badge">✓ Installed</span>'
+            : '<span class="not-installed-badge">Not Installed</span>';
         const card = document.createElement('div');
         card.className = `bg-gray-800 rounded-2xl overflow-hidden shadow-lg border border-gray-700 game-card ${game.theme.borderHover} group flex flex-col cursor-pointer card-animate`;
         card.style.animationDelay = `${index * 60}ms`;
@@ -278,7 +298,10 @@ async function renderLibrary(filterTerm = '') {
                 <div>
                     <div class="flex items-center justify-between mb-1.5">
                         <h2 class="text-xl font-bold text-white flex items-center gap-1.5">${favBadge} ${game.title}</h2>
-                        <span class="text-[11px] text-gray-500 font-medium bg-gray-700/50 px-2 py-0.5 rounded">${game.genre}</span>
+                        <div class="flex items-center gap-2">
+                            ${installedBadge}
+                            <span class="text-[11px] text-gray-500 font-medium bg-gray-700/50 px-2 py-0.5 rounded">${game.genre}</span>
+                        </div>
                     </div>
                     <p class="text-gray-400 text-xs leading-relaxed mb-5 line-clamp-2">${game.description}</p>
                 </div>
@@ -290,6 +313,22 @@ async function renderLibrary(filterTerm = '') {
         `;
         grid.appendChild(card);
     });
+}
+
+/**
+ * Set the library filter and re-render.
+ * @param {string} filter - 'all', 'installed', or 'not_installed'
+ */
+function setLibraryFilter(filter) {
+    currentLibraryFilter = filter;
+
+    // Update active pill styling
+    document.getElementById('filterAll')?.classList.toggle('active', filter === 'all');
+    document.getElementById('filterInstalled')?.classList.toggle('active', filter === 'installed');
+    document.getElementById('filterNotInstalled')?.classList.toggle('active', filter === 'not_installed');
+
+    // Re-render with current search term
+    renderLibrary(currentSearchTerm);
 }
 
 function updateGameCount() {
@@ -310,7 +349,22 @@ async function launchGame(gameId, url) {
         playCount: (pd.playCount || 0) + 1
     });
     await checkAchievements();
-    window.location.href = url;
+
+    // Pass the active profile ID to the game via URL query parameter
+    let profileId = 'default';
+    try {
+        if (window.profiles && typeof window.profiles.get === 'function') {
+            const activeProfile = await window.profiles.get();
+            if (activeProfile && activeProfile.id) {
+                profileId = activeProfile.id;
+            }
+        }
+    } catch (e) {
+        // window.profiles may not be available
+    }
+
+    const separator = url.includes('?') ? '&' : '?';
+    window.location.href = `${url}${separator}profile=${encodeURIComponent(profileId)}`;
 }
 
 async function showDetails(gameId) {
@@ -349,6 +403,40 @@ async function showDetails(gameId) {
                 ${item.label}
             </span>
         `).join('');
+    }
+
+    // Build sidebar installation info
+    const sidebar = document.getElementById('detailsSidebar');
+    if (sidebar) {
+        const installedStatus = game.installed
+            ? '<span class="installed-badge">✓ Installed</span>'
+            : '<span class="not-installed-badge">Not Installed</span>';
+
+        const sourceLabel = game.installSource === 'bundled' ? 'Bundled with Game Hub'
+            : game.installSource === 'downloaded' ? 'Downloaded'
+            : '—';
+
+        const installedDate = game.installedAt ? formatDate(game.installedAt) : '—';
+
+        sidebar.innerHTML = `
+            <div>
+                <div class="details-section-title">Installation</div>
+                <div class="space-y-0">
+                    <div class="details-info-row">
+                        <span class="details-info-label">Status</span>
+                        <span class="details-info-value">${installedStatus}</span>
+                    </div>
+                    <div class="details-info-row">
+                        <span class="details-info-label">Source</span>
+                        <span class="details-info-value">${sourceLabel}</span>
+                    </div>
+                    <div class="details-info-row">
+                        <span class="details-info-label">Installed</span>
+                        <span class="details-info-value">${installedDate}</span>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     // Build actions
@@ -496,12 +584,42 @@ async function renderSettings() {
     const settingVolumeLabel = document.getElementById('settingVolumeLabel');
     const settingStorageSize = document.getElementById('settingStorageSize');
     const settingProfile = document.getElementById('settingProfile');
+    const settingAppVersion = document.getElementById('settingAppVersion');
+    const settingAboutProfile = document.getElementById('settingAboutProfile');
     
     if (settingVolume) settingVolume.value = vol;
     if (settingVolumeLabel) settingVolumeLabel.textContent = vol;
     if (settingStorageSize) settingStorageSize.textContent = await Storage.getStorageSize();
-    const loadedData = await Storage.load();
-    if (settingProfile) settingProfile.textContent = loadedData.profile;
+
+    // Load profile info
+    if (window.profiles) {
+        try {
+            const activeProfile = await window.profiles.get();
+            const displayName = activeProfile && activeProfile.name ? activeProfile.name : 'Default';
+            if (settingProfile) settingProfile.textContent = displayName;
+            if (settingAboutProfile) settingAboutProfile.textContent = displayName;
+        } catch (e) {
+            console.warn('Settings: failed to load profile', e);
+            if (settingProfile) settingProfile.textContent = 'Default';
+            if (settingAboutProfile) settingAboutProfile.textContent = 'Default';
+        }
+    } else {
+        const loadedData = await Storage.load();
+        if (settingProfile) settingProfile.textContent = loadedData.profile || 'default';
+        if (settingAboutProfile) settingAboutProfile.textContent = loadedData.profile || 'default';
+    }
+
+    // Load app version
+    if (window.appInfo) {
+        try {
+            const info = await window.appInfo.get();
+            if (settingAppVersion) settingAppVersion.textContent = 'v' + info.version;
+        } catch (e) {
+            if (settingAppVersion) settingAppVersion.textContent = 'v2.0.0-development';
+        }
+    } else {
+        if (settingAppVersion) settingAppVersion.textContent = 'v2.0.0-development';
+    }
 }
 
 async function updateSetting(key, value) {
@@ -514,12 +632,256 @@ async function updateSetting(key, value) {
     }
 }
 
+// ==========================================
+// MODAL HELPERS
+// ==========================================
+
+function openModal(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        const content = modal.querySelector('[class*="scale-95"]');
+        if (content) content.classList.remove('scale-95');
+    }, 10);
+}
+
+function closeModal(id) {
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    modal.classList.add('opacity-0');
+    const content = modal.querySelector('[class*="scale-95"]');
+    if (content) content.classList.add('scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+    }, 300);
+}
+
+// ==========================================
+// PROFILE SWITCHER
+// ==========================================
+
+async function openProfileSwitcher() {
+    const list = document.getElementById('profileSwitcherList');
+    if (!list) return;
+    list.innerHTML = '<p class="text-gray-500 text-sm text-center">Loading...</p>';
+
+    try {
+        const profiles = await window.profiles.list();
+        const activeProfile = await window.profiles.get();
+        const activeId = activeProfile ? activeProfile.id : 'default';
+
+        list.innerHTML = '';
+        for (const [id, profile] of Object.entries(profiles)) {
+            const isActive = id === activeId;
+            const btn = document.createElement('button');
+            btn.className = `w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors btn-press ${
+                isActive
+                    ? 'bg-blue-900/30 text-blue-400 border border-blue-800/50'
+                    : 'bg-gray-700/50 text-gray-300 hover:bg-gray-700 border border-transparent'
+            }`;
+            btn.disabled = isActive;
+            btn.innerHTML = `<span class="flex items-center justify-between">
+                <span>${profile.name}</span>
+                ${isActive ? '<span class="text-[10px] text-blue-400 font-bold">Active</span>' : ''}
+            </span>`;
+            if (!isActive) {
+                btn.onclick = () => confirmSwitchProfile(id);
+            }
+            list.appendChild(btn);
+        }
+    } catch (e) {
+        list.innerHTML = '<p class="text-red-400 text-sm text-center">Failed to load profiles.</p>';
+        return;
+    }
+
+    openModal('profileSwitcherModal');
+}
+
+function closeProfileSwitcher() {
+    closeModal('profileSwitcherModal');
+}
+
+async function confirmSwitchProfile(profileId) {
+    try {
+        await window.profiles.switch(profileId);
+        closeProfileSwitcher();
+        await renderSettings();
+    } catch (e) {
+        console.error('Failed to switch profile:', e);
+    }
+}
+
+// ==========================================
+// CREATE PROFILE
+// ==========================================
+
+function openCreateProfile() {
+    const input = document.getElementById('createProfileInput');
+    if (input) input.value = '';
+    openModal('createProfileModal');
+    setTimeout(() => {
+        if (input) input.focus();
+    }, 350);
+}
+
+function closeCreateProfile() {
+    closeModal('createProfileModal');
+}
+
+async function confirmCreateProfile() {
+    const input = document.getElementById('createProfileInput');
+    if (!input) return;
+    const name = input.value.trim();
+    if (!name) return;
+
+    try {
+        await window.profiles.create(name);
+        closeCreateProfile();
+        await renderSettings();
+    } catch (e) {
+        console.error('Failed to create profile:', e);
+    }
+}
+
+// ==========================================
+// DELETE PROFILE
+// ==========================================
+
+async function openDeleteProfile() {
+    const list = document.getElementById('deleteProfileList');
+    const message = document.getElementById('deleteProfileMessage');
+    if (!list || !message) return;
+
+    list.innerHTML = '<p class="text-gray-500 text-sm text-center">Loading...</p>';
+
+    try {
+        const profiles = await window.profiles.list();
+        const activeProfile = await window.profiles.get();
+        const activeId = activeProfile ? activeProfile.id : 'default';
+
+        const customProfiles = Object.entries(profiles).filter(([id, p]) => p.type === 'custom');
+
+        if (customProfiles.length === 0) {
+            message.textContent = 'No custom profiles available to delete.';
+            list.innerHTML = '';
+            openModal('deleteProfileModal');
+            return;
+        }
+
+        message.textContent = 'Select a custom profile to delete.';
+        list.innerHTML = '';
+
+        for (const [id, profile] of customProfiles) {
+            const isActive = id === activeId;
+            const btn = document.createElement('button');
+            btn.className = `w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors btn-press ${
+                isActive
+                    ? 'bg-gray-700/30 text-gray-500 border border-gray-700 cursor-not-allowed'
+                    : 'bg-gray-700/50 text-gray-300 hover:bg-red-900/30 hover:text-red-400 border border-transparent'
+            }`;
+            btn.disabled = isActive;
+            btn.innerHTML = `<span class="flex items-center justify-between">
+                <span>${profile.name}</span>
+                ${isActive ? '<span class="text-[10px] text-gray-500">Active — switch first</span>' : ''}
+            </span>`;
+            if (!isActive) {
+                btn.onclick = () => confirmDeleteProfile(id);
+            }
+            list.appendChild(btn);
+        }
+    } catch (e) {
+        list.innerHTML = '<p class="text-red-400 text-sm text-center">Failed to load profiles.</p>';
+        return;
+    }
+
+    openModal('deleteProfileModal');
+}
+
+function closeDeleteProfile() {
+    closeModal('deleteProfileModal');
+}
+
+async function confirmDeleteProfile(profileId) {
+    try {
+        await window.profiles.delete(profileId);
+        closeDeleteProfile();
+        await renderSettings();
+    } catch (e) {
+        console.error('Failed to delete profile:', e);
+    }
+}
+
+// ==========================================
+// EXPORT PROFILE
+// ==========================================
+
+async function exportProfile() {
+    try {
+        const activeProfile = await window.profiles.get();
+        if (!activeProfile) return;
+
+        const data = await window.profiles.exportProfile(activeProfile.id);
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `profile-${activeProfile.id}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        console.error('Failed to export profile:', e);
+    }
+}
+
+// ==========================================
+// IMPORT PROFILE
+// ==========================================
+
+function importProfile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const data = JSON.parse(text);
+            await window.profiles.importProfile(data);
+            await renderSettings();
+        } catch (err) {
+            console.error('Failed to import profile:', err);
+        }
+    };
+    input.click();
+}
+
+// ==========================================
+// RESET DATA
+// ==========================================
+
+function openResetDataModal() {
+    openModal('resetDataModal');
+}
+
+function closeResetDataModal() {
+    closeModal('resetDataModal');
+}
+
 async function confirmResetData() {
-    if (confirm('Are you sure you want to reset all Game Hub data? This will clear play history, favorites, and settings.')) {
-        await Storage.reset();
+    closeResetDataModal();
+    try {
+        await window.storage.resetGameData();
         await renderHome();
         await renderLibrary();
         await renderSettings();
+        if (typeof window.getCurrentView === 'function' && window.getCurrentView() === 'statistics') {
+            await renderStatistics();
+        }
+    } catch (e) {
+        console.error('Failed to reset game data:', e);
     }
 }
 
@@ -762,6 +1124,7 @@ window.launchGame = launchGame;
 window.showDetails = showDetails;
 window.handleSearch = handleSearch;
 window.clearSearch = clearSearch;
+window.setLibraryFilter = setLibraryFilter;
 window.toggleFavorite = toggleFavorite;
 window.updateSetting = updateSetting;
 window.confirmResetData = confirmResetData;
@@ -777,3 +1140,22 @@ window.renderAchievements = renderAchievements;
 window.getCurrentView = () => currentView;
 window.getPreviousView = () => previousView;
 window.getCurrentDetailGameId = () => currentDetailGameId;
+
+// Profile functions
+window.openProfileSwitcher = openProfileSwitcher;
+window.closeProfileSwitcher = closeProfileSwitcher;
+window.confirmSwitchProfile = confirmSwitchProfile;
+window.openCreateProfile = openCreateProfile;
+window.closeCreateProfile = closeCreateProfile;
+window.confirmCreateProfile = confirmCreateProfile;
+window.openDeleteProfile = openDeleteProfile;
+window.closeDeleteProfile = closeDeleteProfile;
+window.confirmDeleteProfile = confirmDeleteProfile;
+window.exportProfile = exportProfile;
+window.importProfile = importProfile;
+
+// Modal functions
+window.openModal = openModal;
+window.closeModal = closeModal;
+window.openResetDataModal = openResetDataModal;
+window.closeResetDataModal = closeResetDataModal;

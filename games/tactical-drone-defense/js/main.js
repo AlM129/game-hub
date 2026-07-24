@@ -15,6 +15,68 @@ const PRECISION_COOLDOWN_TIME = 40.0;
 const CRITICAL_COOLDOWN_TIME = 10.0;
 const CRITICAL_WINDOW_MS = 300; // 0.3 second window to shoot after uncrouching
 
+// ==========================================
+// PROFILE-AWARE STORAGE
+// ==========================================
+// Read the active Game Hub profile ID from the URL query parameter.
+// This ensures each Game Hub profile has its own isolated save data.
+
+const PROFILE_ID = new URLSearchParams(location.search).get('profile') || 'default';
+
+/**
+ * Get a profile-specific localStorage key for Tactical Drone Defense data.
+ * @param {string} key - The base key name (e.g., 'save')
+ * @returns {string} The profile-scoped key
+ */
+function profileKey(key) {
+    return `tdd_${PROFILE_ID}_${key}`;
+}
+
+/**
+ * Default save data structure
+ */
+const DEFAULT_SAVE_DATA = {
+    highScore: 0,
+    highestWave: 1,
+    totalKills: 0,
+    gamesPlayed: 0,
+    totalShots: 0,
+    totalHits: 0,
+    lastPlayed: null
+};
+
+/**
+ * Load save data from localStorage
+ * @returns {Object} Save data object
+ */
+function loadSaveData() {
+    const saveString = localStorage.getItem(profileKey('save'));
+    if (saveString) {
+        try {
+            return JSON.parse(saveString);
+        } catch (e) {
+            console.warn('Tactical Drone Defense: Failed to parse save data, using defaults');
+            return { ...DEFAULT_SAVE_DATA };
+        }
+    }
+    return { ...DEFAULT_SAVE_DATA };
+}
+
+/**
+ * Save data to localStorage
+ * @param {Object} data - Save data object
+ */
+function saveData(data) {
+    try {
+        localStorage.setItem(profileKey('save'), JSON.stringify(data));
+    } catch (e) {
+        console.warn('Tactical Drone Defense: Failed to save data', e);
+    }
+}
+
+// Load save data on startup
+let currentSaveData = loadSaveData();
+
 // --- AUDIO SYSTEM ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 let bgmOscillators = [];
@@ -231,6 +293,11 @@ let isReloading = false;
 let lastShotTime = 0;
 let score = 0;
 let wave = 1;
+
+// Persistence Tracking
+let totalKills = 0;
+let shotsFired = 0;
+let shotsHit = 0;
 
 // --- ASSETS & WORLD ---
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.3); 
@@ -630,6 +697,11 @@ function resetGame() {
     criticalCooldown = 0;
     lastUncrouchTime = 0;
     
+    // Reset tracking
+    totalKills = 0;
+    shotsFired = 0;
+    shotsHit = 0;
+    
     // Reset Position AND fully reset Camera Angles
     yawObject.position.set(0, PLAYER_HEIGHT_STANDING, 0);
     yawObject.rotation.set(0, 0, 0); 
@@ -731,6 +803,7 @@ function shoot() {
     if (performance.now() - lastShotTime < GUN_FIRE_RATE * 1000) return;
     lastShotTime = performance.now();
     ammo--; updateHUD(); playSound('shoot');
+    shotsFired++;
 
     recoilAmount += 0.05; gunGroup.position.z += 0.15;
     
@@ -805,14 +878,28 @@ function shoot() {
                 }
                 createExplosion(obj.position, (obj.userData.type==='drone')?0xffaa00:(obj.userData.type==='soldier'?0x00ff00:0x00ffff));
                 scene.remove(obj); enemies.splice(enemies.indexOf(obj), 1); score += 10;
+                totalKills++;
+                shotsHit++;
+                
                 if (enemies.length === 0) {
                     wave++; showMessage(`WAVE ${wave} INCOMING`);
+                    
+                    // Save on wave completion
+                    currentSaveData.highestWave = Math.max(currentSaveData.highestWave, wave);
+                    currentSaveData.totalKills += totalKills;
+                    currentSaveData.totalShots += shotsFired;
+                    currentSaveData.totalHits += shotsHit;
+                    currentSaveData.lastPlayed = new Date().toISOString();
+                    saveData(currentaveData);
+                    
                     setTimeout(() => {
                         if (wave % 3 === 0) spawnEnemy('controller');
                         const count = 2 + Math.ceil(wave * 1.5);
                         for(let k=0; k < count; k++) spawnEnemy();
                     }, 3000);
                 }
+            } else {
+                shotsHit++;
             }
         } else {
             const spark = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.05), new THREE.MeshBasicMaterial({color: 0xaaaaaa}));
@@ -838,6 +925,16 @@ function takeDamage(amount) {
         showMenu('GAMEOVER');
         document.exitPointerLock();
         document.getElementById('blocker').style.display = 'flex';
+        
+        // Save on game over
+        currentSaveData.highScore = Math.max(currentSaveData.highScore, score);
+        currentSaveData.highestWave = Math.max(currentSaveData.highestWave, wave);
+        currentSaveData.totalKills += totalKills;
+        currentSaveData.totalShots += shotsFired;
+        currentSaveData.totalHits += shotsHit;
+        currentSaveData.gamesPlayed++;
+        currentSaveData.lastPlayed = new Date().toISOString();
+        saveData(currentSaveData);
     }
 }
 

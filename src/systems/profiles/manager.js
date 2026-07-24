@@ -116,7 +116,8 @@ export async function exportProfile(profileId) {
 
 /**
  * Import a profile from a portable JSON object.
- * If a profile with the same ID exists, a new ID is generated.
+ * Always generates a new profile ID and forces type to 'custom'
+ * to avoid overwriting the built-in Default profile.
  * @param {Object} data - Profile data (as exported by exportProfile)
  * @returns {Promise<Object>} The imported profile
  */
@@ -126,17 +127,19 @@ export async function importProfile(data) {
     }
 
     const profiles = await CoreStorage.getProfiles();
-    let id = data.id;
+    // Always generate a new ID for imported profiles to prevent:
+    // - overwriting the built-in Default profile
+    // - ID collisions with existing profiles
+    // - imported profiles retaining "default" type (preventing deletion)
+    const id = generateProfileId(data.name, profiles);
 
-    // If ID already exists, generate a new one
-    if (profiles[id]) {
-        id = generateProfileId(data.name, profiles);
-    }
+    // Preserve "Backup" suffix on name if it's the default profile being imported
+    const importedName = data.type === 'default' ? `${data.name} Backup` : data.name;
 
     const profile = {
         id,
-        name: data.name,
-        type: data.type || 'custom',
+        name: importedName,
+        type: 'custom', // Force imported profiles to 'custom' type so they can be deleted
         settings: { volume: 80, theme: 'dark', ...(data.settings || {}) },
         achievements: { ...(data.achievements || {}) },
         statistics: {

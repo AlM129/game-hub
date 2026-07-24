@@ -7,7 +7,12 @@ contextBridge.exposeInMainWorld('storage', {
     export: () => ipcRenderer.invoke('storage:export'),
     import: (data) => ipcRenderer.invoke('storage:import', data),
     migrate: (data) => ipcRenderer.invoke('storage:migrate', data),
-    resetGameData: () => ipcRenderer.invoke('storage:resetGameData')
+    resetGameData: () => ipcRenderer.invoke('storage:resetGameData'),
+    getInstalledGames: () => ipcRenderer.invoke('storage:getInstalledGames'),
+    setInstalledGame: (gameId, data) => ipcRenderer.invoke('storage:setInstalledGame', gameId, data),
+    removeInstalledGame: (gameId) => ipcRenderer.invoke('storage:removeInstalledGame', gameId),
+    hasInstalledGame: (gameId) => ipcRenderer.invoke('storage:hasInstalledGame', gameId),
+    getInstalledGame: (gameId) => ipcRenderer.invoke('storage:getInstalledGame', gameId)
 });
 
 contextBridge.exposeInMainWorld('profiles', {
@@ -18,4 +23,8 @@ contextBridge.exposeInMainWorld('profiles', {
     delete: (profileId) => ipcRenderer.invoke('profiles:delete', profileId),
     exportProfile: (profileId) => ipcRenderer.invoke('profiles:exportProfile', profileId),
     importProfile: (data) => ipcRenderer.invoke('profiles:importProfile', data)
+});
+
+contextBridge.exposeInMainWorld('appInfo', {
+    get: () => ipcRenderer.invoke('app:info')
 });

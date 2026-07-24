@@ -306,6 +306,95 @@
         }
 
         /* ==========================================
+           INSTALLATION STATE BADGES
+           ========================================== */
+        .installed-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--color-emerald-400);
+            background: rgba(5, 150, 105, 0.15);
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.375rem;
+            letter-spacing: 0.025em;
+            text-transform: uppercase;
+        }
+
+        .not-installed-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 10px;
+            font-weight: 600;
+            color: #6b7280;
+            background: rgba(107, 114, 128, 0.15);
+            padding: 0.125rem 0.5rem;
+            border-radius: 0.375rem;
+            letter-spacing: 0.025em;
+            text-transform: uppercase;
+        }
+
+        /* Library filter pills */
+        .filter-pill {
+            padding: 0.375rem 0.875rem;
+            border-radius: 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+            user-select: none;
+        }
+
+        .filter-pill:hover {
+            background: rgba(55, 65, 81, 0.5);
+            color: #e5e7eb;
+        }
+
+        .filter-pill.active {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .details-section-title {
+            color: #6b7280;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .details-info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(55, 65, 81, 0.5);
+        }
+
+        .details-info-row:last-child {
+            border-bottom: none;
+        }
+
+        .details-info-label {
+            color: #9ca3af;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .details-info-value {
+            color: #e5e7eb;
+            font-size: 0.8125rem;
+            font-weight: 600;
+        }
+
+        /* ==========================================
            LAYOUT
            ========================================== */
         .app-layout {
@@ -396,7 +485,7 @@
                     </svg>
                     Statistics
                 </div>
-                <div id="navSettings" class="nav-item disabled" onclick="navigateTo('settings')">
+                <div id="navSettings" class="nav-item" onclick="navigateTo('settings')">
                     <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
@@ -405,8 +494,6 @@
                             d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
                     </svg>
                     Settings
-                    <span
-                        class="ml-auto text-[10px] bg-gray-700 text-gray-500 px-1.5 py-0.5 rounded font-bold">Soon</span>
                 </div>
             </nav>
 
@@ -522,6 +609,14 @@
                             <input id="searchInput" type="text" placeholder="Search games..." class="search-input"
                                 oninput="handleSearch(this.value)">
                         </div>
+                    </div>
+
+                    <!-- Library Filters -->
+                    <div class="flex items-center gap-2 mb-6">
+                        <span class="text-[10px] font-bold uppercase tracking-widest text-gray-600 mr-2">Filter:</span>
+                        <span id="filterAll" class="filter-pill active" onclick="setLibraryFilter('all')">All</span>
+                        <span id="filterInstalled" class="filter-pill" onclick="setLibraryFilter('installed')">Installed</span>
+                        <span id="filterNotInstalled" class="filter-pill" onclick="setLibraryFilter('not_installed')">Not Installed</span>
                     </div>
 
                     <!-- Game Grid -->
@@ -721,6 +816,34 @@
                         <h2 class="text-3xl font-extrabold text-white mb-2">Settings</h2>
                         <p class="text-gray-400 text-sm mb-8">Configure your launcher preferences.</p>
 
+                        <!-- Profiles -->
+                        <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden mb-6">
+                            <div class="px-5 py-3 border-b border-gray-700">
+                                <h3 class="text-xs font-bold uppercase tracking-widest text-gray-500">Profiles</h3>
+                            </div>
+                            <div class="setting-row">
+                                <div>
+                                    <div class="text-sm font-medium text-white">Active Profile</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">Your current profile for settings, saves, and progress</div>
+                                </div>
+                                <span id="settingProfile" class="text-xs text-gray-400 font-mono">—</span>
+                            </div>
+                            <div class="px-5 py-4 border-b border-gray-700">
+                                <div class="flex flex-wrap gap-2">
+                                    <button onclick="openProfileSwitcher()"
+                                        class="text-xs bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">Switch Profile</button>
+                                    <button onclick="openCreateProfile()"
+                                        class="text-xs bg-green-900/30 text-green-400 hover:bg-green-900/50 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">Create Profile</button>
+                                    <button onclick="openDeleteProfile()"
+                                        class="text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">Delete Profile</button>
+                                    <button onclick="exportProfile()"
+                                        class="text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">Export Profile</button>
+                                    <button onclick="importProfile()"
+                                        class="text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">Import Profile</button>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- General Settings -->
                         <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden mb-6">
                             <div class="px-5 py-3 border-b border-gray-700">
@@ -756,17 +879,16 @@
                             <div class="setting-row">
                                 <div>
                                     <div class="text-sm font-medium text-white">Storage Used</div>
-                                    <div class="text-xs text-gray-500 mt-0.5">localStorage usage by Game Hub</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">Total data stored by Game Hub for your current profile</div>
                                 </div>
                                 <span id="settingStorageSize" class="text-xs text-gray-400 font-mono">—</span>
                             </div>
                             <div class="setting-row">
                                 <div>
-                                    <div class="text-sm font-medium text-white">Reset All Data</div>
-                                    <div class="text-xs text-gray-500 mt-0.5">Clear play history, favorites, and
-                                        settings</div>
+                                    <div class="text-sm font-medium text-white">Reset Game Data</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">Clears all play history, achievements, and saves for the current profile. Your settings and other profiles are preserved.</div>
                                 </div>
-                                <button onclick="confirmResetData()"
+                                <button onclick="openResetDataModal()"
                                     class="text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">Reset</button>
                             </div>
                         </div>
@@ -777,12 +899,18 @@
                                 <h3 class="text-xs font-bold uppercase tracking-widest text-gray-500">About</h3>
                             </div>
                             <div class="setting-row">
-                                <div class="text-sm font-medium text-white">Game Hub</div>
-                                <span class="text-xs text-gray-400 font-mono">v1.0.0</span>
+                                <div>
+                                    <div class="text-sm font-medium text-white">Game Hub</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">Launcher version</div>
+                                </div>
+                                <span id="settingAppVersion" class="text-xs text-gray-400 font-mono">—</span>
                             </div>
                             <div class="setting-row">
-                                <div class="text-sm font-medium text-white">Profile</div>
-                                <span id="settingProfile" class="text-xs text-gray-400 font-mono">default</span>
+                                <div>
+                                    <div class="text-sm font-medium text-white">Current Profile</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">Active profile display name</div>
+                                </div>
+                                <span id="settingAboutProfile" class="text-xs text-gray-400 font-mono">—</span>
                             </div>
                         </div>
                     </div>
@@ -821,6 +949,91 @@
                     class="bg-amber-600 hover:bg-amber-500 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">
                     Yes, play Beta!
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Switcher Modal -->
+    <div id="profileSwitcherModal"
+        class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-800 border border-gray-700 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
+            id="profileSwitcherModalContent">
+            <div class="text-center mb-6">
+                <h3 class="text-2xl font-bold text-white mb-2">Switch Profile</h3>
+                <p class="text-gray-400 text-sm">Select a profile to switch to.</p>
+            </div>
+            <div id="profileSwitcherList" class="space-y-2 max-h-64 overflow-y-auto mb-6">
+                <!-- Populated by JS -->
+            </div>
+            <div class="flex justify-center">
+                <button onclick="closeProfileSwitcher()"
+                    class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Profile Modal -->
+    <div id="createProfileModal"
+        class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-800 border border-gray-700 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
+            id="createProfileModalContent">
+            <div class="text-center mb-6">
+                <h3 class="text-2xl font-bold text-white mb-2">Create Profile</h3>
+                <p class="text-gray-400 text-sm">Enter a display name for the new profile.</p>
+            </div>
+            <div class="mb-6">
+                <input id="createProfileInput" type="text" placeholder="Profile name..."
+                    class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    onkeydown="if(event.key==='Enter')confirmCreateProfile()">
+            </div>
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+                <button onclick="closeCreateProfile()"
+                    class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">Cancel</button>
+                <button onclick="confirmCreateProfile()"
+                    class="bg-green-600 hover:bg-green-500 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Profile Modal -->
+    <div id="deleteProfileModal"
+        class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-800 border border-red-900/50 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
+            id="deleteProfileModalContent">
+            <div class="text-center mb-6">
+                <svg class="h-12 w-12 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <h3 class="text-2xl font-bold text-white mb-2">Delete Profile</h3>
+                <p class="text-gray-300 text-sm" id="deleteProfileMessage">Select a custom profile to delete.</p>
+            </div>
+            <div id="deleteProfileList" class="space-y-2 max-h-64 overflow-y-auto mb-6">
+                <!-- Populated by JS -->
+            </div>
+            <div class="flex justify-center">
+                <button onclick="closeDeleteProfile()"
+                    class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reset Data Confirmation Modal -->
+    <div id="resetDataModal"
+        class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-800 border border-red-900/50 rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300"
+            id="resetDataModalContent">
+            <div class="text-center mb-6">
+                <svg class="h-12 w-12 text-red-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <h3 class="text-2xl font-bold text-white mb-2">Reset Game Data</h3>
+                <p class="text-gray-300 text-sm">This will permanently clear all play history, achievements, and saves for the current profile. Your settings and other profiles will not be affected. This action cannot be undone.</p>
+            </div>
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+                <button onclick="closeResetDataModal()"
+                    class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">Cancel</button>
+                <button onclick="confirmResetData()"
+                    class="bg-red-600 hover:bg-red-500 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">Reset</button>
             </div>
         </div>
     </div>

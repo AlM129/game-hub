@@ -5,6 +5,64 @@
 const GAME_STATES = { LOADING: 0, MAIN_MENU: 1, PLAYING: 2, PAUSED: 3, GAME_OVER: 4, SETTINGS: 5, ACHIEVEMENTS: 6 };
 let currentState = GAME_STATES.LOADING;
 
+// ==========================================
+// PROFILE-AWARE STORAGE
+// ==========================================
+// Read the active Game Hub profile ID from the URL query parameter.
+// This ensures each Game Hub profile has its own isolated save data.
+
+const PROFILE_ID = new URLSearchParams(location.search).get('profile') || 'default';
+
+/**
+ * Get a profile-specific localStorage key for Neon Survival data.
+ * @param {string} key - The base key name (e.g., 'settings_v2', 'stats', 'unlocks')
+ * @returns {string} The profile-scoped key
+ */
+function profileKey(key) {
+    return `neon_${PROFILE_ID}_${key}`;
+}
+
+/**
+ * Migrate old (non-profile) Neon Survival data to the current profile's storage.
+ * This runs once per profile and does not delete old data.
+ */
+function migrateOldData() {
+    const OLD_SETTINGS_KEY = 'neonSettings_v2';
+    const OLD_STATS_KEY = 'neonStats';
+    const OLD_UNLOCKS_KEY = 'neonUnlocks';
+    
+    const NEW_SETTINGS_KEY = profileKey('settings_v2');
+    const NEW_STATS_KEY = profileKey('stats');
+    const NEW_UNLOCKS_KEY = profileKey('unlocks');
+
+    // Migrate settings
+    const oldSettings = localStorage.getItem(OLD_SETTINGS_KEY);
+    const newSettings = localStorage.getItem(NEW_SETTINGS_KEY);
+    if (oldSettings !== null && newSettings === null) {
+        localStorage.setItem(NEW_SETTINGS_KEY, oldSettings);
+        console.log(`Neon Survival: Migrated settings to profile "${PROFILE_ID}"`);
+    }
+
+    // Migrate stats
+    const oldStats = localStorage.getItem(OLD_STATS_KEY);
+    const newStats = localStorage.getItem(NEW_STATS_KEY);
+    if (oldStats !== null && newStats === null) {
+        localStorage.setItem(NEW_STATS_KEY, oldStats);
+        console.log(`Neon Survival: Migrated stats to profile "${PROFILE_ID}"`);
+    }
+
+    // Migrate unlocks
+    const oldUnlocks = localStorage.getItem(OLD_UNLOCKS_KEY);
+    const newUnlocks = localStorage.getItem(NEW_UNLOCKS_KEY);
+    if (oldUnlocks !== null && newUnlocks === null) {
+        localStorage.setItem(NEW_UNLOCKS_KEY, oldUnlocks);
+        console.log(`Neon Survival: Migrated unlocks to profile "${PROFILE_ID}"`);
+    }
+}
+
+// Run migration on load
+migrateOldData();
+
 // Shared Math Objects (Performance Optimization: Eliminate 'new' in animation loops)
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 const _q1 = new THREE.Quaternion();
@@ -12,8 +70,8 @@ const _raycaster = new THREE.Raycaster();
 
 // Centralized Settings Manager
 const SettingsManager = {
-    data: JSON.parse(localStorage.getItem('neonSettings_v2')) || { mouseSens: 0.002, masterVol: 1.0, musicVol: 0.6, sfxVol: 0.8 },
-    save: function () { localStorage.setItem('neonSettings_v2', JSON.stringify(this.data)); }
+    data: JSON.parse(localStorage.getItem(profileKey('settings_v2'))) || { mouseSens: 0.002, masterVol: 1.0, musicVol: 0.6, sfxVol: 0.8 },
+    save: function () { localStorage.setItem(profileKey('settings_v2'), JSON.stringify(this.data)); }
 };
 
 // Centralized Achievement Manager
@@ -34,8 +92,8 @@ function reportToGameHub(achievementId) {
 }
 
 const AchievementManager = {
-    stats: JSON.parse(localStorage.getItem('neonStats')) || { kills: 0, deaths: 0, shots: 0, hits: 0, distance: 0, playTime: 0, powerups: 0, dashes: 0, maxScore: 0, longestRun: 0 },
-    unlocked: JSON.parse(localStorage.getItem('neonUnlocks')) || {},
+    stats: JSON.parse(localStorage.getItem(profileKey('stats'))) || { kills: 0, deaths: 0, shots: 0, hits: 0, distance: 0, playTime: 0, powerups: 0, dashes: 0, maxScore: 0, longestRun: 0 },
+    unlocked: JSON.parse(localStorage.getItem(profileKey('unlocks'))) || {},
     sessionStartTime: 0,
 
     list: {
@@ -55,8 +113,8 @@ const AchievementManager = {
     },
 
     save: function () {
-        localStorage.setItem('neonStats', JSON.stringify(this.stats));
-        localStorage.setItem('neonUnlocks', JSON.stringify(this.unlocked));
+        localStorage.setItem(profileKey('stats'), JSON.stringify(this.stats));
+        localStorage.setItem(profileKey('unlocks'), JSON.stringify(this.unlocked));
     },
 
     checkUnlocks: function () {

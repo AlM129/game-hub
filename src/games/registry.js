@@ -6,6 +6,7 @@
 // and eventually fetching from a remote URL without modifying Game Hub code.
 
 import { getRegistryUrl, LOCAL_REGISTRY_URL, getUseRemoteRegistry, setUseRemoteRegistry } from './registry-source.js';
+import { Storage } from '../storage.js';
 
 // Mutable registry state — populated from registry.json at startup
 export let gamesRegistry = [];
@@ -14,6 +15,85 @@ export let registryMeta = {
     featured: null
 };
 export let launcherChangelog = [];
+
+// ==========================================
+// INSTALLATION STATE TRACKING
+// ==========================================
+// Profile-independent tracking of installed games
+
+export let installedGames = {};  // { gameId: { version, installPath, installedAt, source } }
+
+/**
+ * Load installed games from storage.
+ * Should be called after loadRegistry().
+ */
+export async function loadInstalledGames() {
+    try {
+        const data = await Storage.getInstalledGames();
+        installedGames = data || {};
+        console.log(`GameHub: Loaded ${Object.keys(installedGames).length} installed games from storage`);
+    } catch (error) {
+        console.warn('GameHub: Failed to load installed games:', error);
+        installedGames = {};
+    }
+}
+
+/**
+ * Check if a game is installed.
+ * @param {string} gameId - Game identifier
+ * @returns {boolean}
+ */
+export function isGameInstalled(gameId) {
+    return !!installedGames[gameId];
+}
+
+/**
+ * Get installation data for a game.
+ * @param {string} gameId - Game identifier
+ * @returns {Object|null} Installation data or null
+ */
+export function getInstalledGameData(gameId) {
+    return installedGames[gameId] || null;
+}
+
+/**
+ * Get the installed version of a game.
+ * @param {string} gameId - Game identifier
+ * @returns {string|null} Version string or null
+ */
+export function getInstalledVersion(gameId) {
+    return installedGames[gameId]?.version || null;
+}
+
+/**
+ * Get the install path of a game.
+ * @param {string} gameId - Game identifier
+ * @returns {string|null} Install path or null
+ */
+export function getInstallPath(gameId) {
+    return installedGames[gameId]?.installPath || null;
+}
+
+/**
+ * Mark a game as installed.
+ * @param {string} gameId - Game identifier
+ * @param {Object} data - Installation data { version, installPath, installedAt, source }
+ */
+export async function markAsInstalled(gameId, data) {
+    installedGames[gameId] = data;
+    await Storage.setInstalledGame(gameId, data);
+    console.log(`GameHub: Marked ${gameId} as installed (source: ${data.source})`);
+}
+
+/**
+ * Remove installed game entry.
+ * @param {string} gameId - Game identifier
+ */
+export async function uninstallGame(gameId) {
+    delete installedGames[gameId];
+    await Storage.removeInstalledGame(gameId);
+    console.log(`GameHub: Uninstalled ${gameId}`);
+}
 
 // ==========================================
 // REGISTRY LOADER
@@ -86,13 +166,24 @@ export async function loadRegistry() {
         launcherChangelog = data.launcherChangelog || [];
 
         // Build the games registry array from JSON data
+        const DEFAULT_PACKAGE = {
+            available: false,
+            url: null,
+            size: null,
+            checksum: null,
+            format: null
+        };
+
         gamesRegistry = data.games.map(game => ({
             id: game.id,
             path: game.path,
+            version: game.version || null,
             featured: game.featured || false,
             description: game.description || '',
             thumbnail: game.thumbnail || '',
-            name: game.name || game.id
+            name: game.name || game.id,
+            source: game.source || 'bundled',
+            package: game.package || { ...DEFAULT_PACKAGE }
         }));
 
         console.log(`GameHub: Registry loaded successfully from ${source} source (${gamesRegistry.length} games, version ${registryMeta.version})`);

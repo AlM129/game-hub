@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tactical Drone Defense v1.4.0</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="../../engine/three.min.js"></script>
+    <script src="js/three.min.js"></script>
 </head>
+
 <body>
- 
+
     <div id="hud">
         <div style="padding: 20px;">
             <div class="stat-box">
@@ -19,7 +21,7 @@
                 <div id="crit-box" style="color: #666;">CRITICAL: READY</div>
             </div>
         </div>
-        
+
         <div id="radar-box">
             <div class="stat-label">PRIORITY TARGET</div>
             <div id="radar-text">SCANNING...</div>
@@ -33,7 +35,9 @@
             <div class="stat-box">
                 <div class="stat-label">Suit Integrity</div>
                 <div class="stat-value" id="health-count">100</div>
-                <div id="health-bar-container"><div id="health-fill"></div></div>
+                <div id="health-bar-container">
+                    <div id="health-fill"></div>
+                </div>
             </div>
             <div class="stat-box" style="text-align: right;">
                 <div class="stat-label">Ammo</div>
@@ -56,7 +60,9 @@
             <p>Release SHIFT + Shoot quickly: Critical Hit (2x DMG)</p>
             <button id="play-btn">DEPLOY</button>
             <button id="launcher-main-btn">Return to Launcher</button>
-            <div style="position: absolute; bottom: 20px; right: 20px; color: #666; font-size: 14px; font-family: monospace;">v1.4.0 | by Gemini</div>
+            <div
+                style="position: absolute; bottom: 20px; right: 20px; color: #666; font-size: 14px; font-family: monospace;">
+                v1.4.0 | by Gemini</div>
         </div>
 
         <!-- Pause Menu -->
@@ -77,4 +83,5 @@
     </div>
     <script src="js/main.js"></script>
 </body>
+
 </html>

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const Store = require('electron-store').default;
+const pkg = require('./package.json');
 
 const SCHEMA_VERSION = 2;
 const DEFAULT_PROFILE_ID = 'default';
@@ -251,6 +252,25 @@ app.whenReady().then(() => {
         return true;
     });
 
+    // ==========================================
+    // Reset Data
+    // ==========================================
+    // Clears launcher-owned data for the active profile only.
+    //
+    // This resets:
+    //   - achievements
+    //   - statistics (totalSessions, gamePlayHistory)
+    //   - saves (update history, etc.)
+    //
+    // This does NOT clear:
+    //   - Game-owned localStorage data (e.g. Tactical Drone Defense saves)
+    //   - Game-specific settings
+    //   - Other game save data
+    //
+    // Game-owned data deletion/reset requires a future Game Hub game-data API
+    // that games would implement to expose their save data for management.
+    // ==========================================
+
     ipcMain.handle('storage:resetGameData', () => {
         const activeProfileId = store.get('metadata.activeProfileId') || DEFAULT_PROFILE_ID;
         const profilePath = `profiles.${activeProfileId}`;
@@ -264,6 +284,36 @@ app.whenReady().then(() => {
         store.set(`${profilePath}.settings`, profile.settings || { volume: 80, theme: 'dark' });
         store.store = normalizeStore(store.store);
         return true;
+    });
+
+    ipcMain.handle('storage:getInstalledGames', () => {
+        return store.get('installedGames') || {};
+    });
+
+    ipcMain.handle('storage:setInstalledGame', (event, gameId, data) => {
+        const installed = store.get('installedGames') || {};
+        installed[gameId] = data;
+        store.set('installedGames', installed);
+        store.store = normalizeStore(store.store);
+        return true;
+    });
+
+    ipcMain.handle('storage:removeInstalledGame', (event, gameId) => {
+        const installed = store.get('installedGames') || {};
+        delete installed[gameId];
+        store.set('installedGames', installed);
+        store.store = normalizeStore(store.store);
+        return true;
+    });
+
+    ipcMain.handle('storage:hasInstalledGame', (event, gameId) => {
+        const installed = store.get('installedGames') || {};
+        return !!installed[gameId];
+    });
+
+    ipcMain.handle('storage:getInstalledGame', (event, gameId) => {
+        const installed = store.get('installedGames') || {};
+        return installed[gameId] || null;
     });
 
     // ==========================================
@@ -366,15 +416,19 @@ app.whenReady().then(() => {
         }
 
         const profiles = store.get('profiles') || {};
-        let id = data.id;
-        if (profiles[id]) {
-            id = generateProfileId(data.name, profiles);
-        }
+        // Always generate a new ID for imported profiles to avoid:
+        // - overwriting the built-in Default profile
+        // - ID collisions with existing profiles
+        // - imported profiles retaining "default" type
+        const id = generateProfileId(data.name, profiles);
+
+        // Preserve "Backup" suffix on name if it's the default profile being imported
+        const importedName = data.type === 'default' ? `${data.name} Backup` : data.name;
 
         const profile = {
             id,
-            name: data.name,
-            type: data.type || 'custom',
+            name: importedName,
+            type: 'custom', // Force imported profiles to 'custom' type so they can be deleted
             settings: { volume: 80, theme: 'dark', ...(data.settings || {}) },
             achievements: { ...(data.achievements || {}) },
             statistics: {
@@ -388,6 +442,17 @@ app.whenReady().then(() => {
         store.set(`profiles.${id}`, normalizeProfile(id, profile));
         store.store = normalizeStore(store.store);
         return store.get(`profiles.${id}`);
+    });
+
+    // ==========================================
+    // App Info
+    // ==========================================
+
+    ipcMain.handle('app:info', () => {
+        return {
+            version: pkg.version,
+            schemaVersion: SCHEMA_VERSION
+        };
     });
 
     createWindow();
