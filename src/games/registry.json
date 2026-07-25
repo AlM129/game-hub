@@ -1,67 +1,37 @@
 {
-  "version": "1",
-  "featured": "tactical-drone-defense",
-  "launcherChangelog": [
-    {
-      "version": "1.3.0",
-      "date": "2026-07-10",
-      "changes": [
-        "Added statistics dashboard",
-        "Added Game Hub Bridge"
-      ]
-    }
-  ],
-  "games": [
-    {
+  "$schema": "https://raw.githubusercontent.com/AlM129/game-hub-registry/main/schema/registry.schema.json",
+  "registryVersion": 1,
+  "lastUpdated": "2026-07-24",
+  "games": {
+    "tactical-drone-defense": {
       "id": "tactical-drone-defense",
       "name": "Tactical Drone Defense",
-      "version": "2.0.0",
-      "path": "games/tactical-drone-defense/",
-      "description": "Defend your base from waves of enemy drones in this strategic tower defense game.",
-      "thumbnail": "cover.png",
+      "developer": "MCM Games",
+      "genre": "Shooter",
       "featured": true,
-      "source": "bundled",
-      "package": {
-        "available": false,
-        "url": null,
-        "size": null,
-        "checksum": null,
-        "format": null
-      }
+      "thumbnail": "cover.png",
+      "metaUrl": "games/tactical-drone-defense.json",
+      "path": "games/tactical-drone-defense/"
     },
-    {
+    "sky-ace": {
       "id": "sky-ace",
       "name": "Sky Ace",
-      "version": "1.0.0",
-      "path": "games/sky-ace/",
-      "description": "Take to the skies in this thrilling aerial combat game.",
-      "thumbnail": "cover.png",
+      "developer": "MCM Games",
+      "genre": "Flight Simulator",
       "featured": false,
-      "source": "bundled",
-      "package": {
-        "available": false,
-        "url": null,
-        "size": null,
-        "checksum": null,
-        "format": null
-      }
+      "thumbnail": "cover.png",
+      "metaUrl": "games/sky-ace.json",
+      "path": "games/sky-ace/"
     },
-    {
+    "neon-survival": {
       "id": "neon-survival",
       "name": "Neon Survival",
-      "version": "1.0.0",
-      "path": "games/neon-survival/",
-      "description": "Survive the neon-lit dystopia in this action-packed adventure.",
-      "thumbnail": "cover.png",
+      "developer": "MCM Games",
+      "genre": "FPS Shooter",
       "featured": false,
-      "source": "bundled",
-      "package": {
-        "available": false,
-        "url": null,
-        "size": null,
-        "checksum": null,
-        "format": null
-      }
+      "thumbnail": "cover.png",
+      "metaUrl": "games/neon-survival.json",
+      "path": "games/neon-survival/"
     }
-  ]
+  }
 }
