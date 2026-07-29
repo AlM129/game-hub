@@ -39,7 +39,7 @@ function getBundledPath(gameId) {
  * @param {string} gameId
  * @returns {boolean}
  */
-function isBundledGame(gameId) {
+export function isBundledGame(gameId) {
     return gameId in BUNDLED_GAMES;
 }
 
@@ -324,6 +324,21 @@ export async function getGameWithPlayData(game, Storage) {
     const isInstalled = isGameInstalled(game.id);
     const installData = getInstalledGameData(game.id);
 
+    // Resolve the launch path:
+    //   1. Downloaded games: use the absolute path stored by the downloader
+    //   2. Bundled games: use the relative path from the registry
+    //   3. If downloaded copy exists, prefer it over bundled
+    let resolvedPath = installData?.source === 'downloaded' && installData?.path
+        ? installData.path
+        : game.path;
+
+    // Ensure path has a trailing slash so that concatenation with
+    // cover/action URLs works correctly (e.g. "path/cover.png"
+    // instead of "pathcover.png").
+    if (resolvedPath && !resolvedPath.endsWith('/')) {
+        resolvedPath += '/';
+    }
+
     return {
         ...game,
         lastPlayed: pd.lastPlayed || null,
@@ -332,7 +347,8 @@ export async function getGameWithPlayData(game, Storage) {
         activeChannel: activeChannel,
         channelVersion: channelVersion,
         installed: isInstalled,
-        installPath: installData?.installPath || game.path,
+        path: resolvedPath,
+        installPath: installData?.path || installData?.installPath || game.path,
         installSource: installData?.source || (game.path ? 'bundled' : null),
         installedAt: installData?.installedAt || null
     };
@@ -420,4 +436,13 @@ export async function getAllInstalledGames() {
         id,
         ...data
     }));
+}
+
+/**
+ * Refresh the in-memory installed games cache from storage.
+ * Call this after a download completes to ensure the renderer
+ * sees the updated installation state.
+ */
+export async function refreshInstalledGames() {
+    await loadInstalledGames();
 }

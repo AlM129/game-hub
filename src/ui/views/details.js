@@ -18,6 +18,7 @@ import {
 import { formatDate, formatLastPlayed, getChannelBadge, getRarityBadge, getRarityBg } from '../../utils.js';
 
 export async function showDetails(gameId) {
+    console.log("[DEBUG] details.js showDetails called for:", gameId);
     const gameDef = games.find(g => g.id === gameId);
     if (!gameDef) return;
 

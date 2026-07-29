@@ -4,11 +4,12 @@
 // Thin entry point that wires all modules together
 
 import { Storage } from './storage.js';
-import { getGames, loadGameManifests, detectBundledGames, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog, getFeaturedGameId } from './games/loader.js';
+import { getGames, loadGameManifests, detectBundledGames, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog, getFeaturedGameId, isBundledGame, refreshInstalledGames } from './games/loader.js';
+import { loadInstalledGames } from './games/registry.js';
 import { initialize as initAchievements, achievements, getAchievementDefinitions, addGameAchievements, RARITY_CONFIG } from './systems/achievements/manager.js';
-import { navigateTo } from './core/router.js';
+import { navigateTo, getCurrentView as getRouterCurrentView } from './core/router.js';
 import { GameHub } from './core/events.js';
-import { formatDate, formatLastPlayed, getChannelBadge, getRarityBadge, getRarityBg } from './utils.js';
+import { formatDate, formatLastPlayed, getChannelBadge, getRarityBadge, getRarityBg, resolveCoverUrl } from './utils.js';
 import { CHANNEL_CONFIG } from './games/registry.js';
 
 // Re-export games for backward compatibility
@@ -26,6 +27,15 @@ let currentLibraryFilter = 'all';
 let currentDetailGameId = null;
 
 // ==========================================
+// DOWNLOAD STATE
+// ==========================================
+
+const downloadStates = new Map(); // gameId -> { downloadId, status, percentage, bytes, total }
+let downloadCleanup = null;
+let downloadModalGameId = null; // Tracks which game's download is shown in the modal
+let downloadModalGameDef = null; // The game definition for the current modal (used for retry/launch)
+
+// ==========================================
 // INITIALIZATION
 // ==========================================
 
@@ -37,14 +47,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Step 2: Load game manifests from game.json files
         await loadGameManifests();
 
-        // Step 3: Detect and register bundled games as installed
+        // Step 3: Load installed games from persistent storage (downloaded games)
+        // This MUST happen before detectBundledGames() so that downloaded games
+        // are already in memory and won't be overwritten by bundled detection.
+        await loadInstalledGames();
+
+        // Step 4: Detect and register bundled games as installed
+        // Skips games already marked as installed (including downloaded games)
         await detectBundledGames();
 
         // Step 4: Initialize achievements system
         initAchievements();
 
-        // Step 4: Set up event listeners
+        // Step 4: Set up event listeners and download listener
         setupEventListeners();
+        setupDownloadListener();
 
         // Step 5: Make GameHub available on window (needed for bridge queue processing)
         window.GameHub = GameHub;
@@ -178,7 +195,7 @@ async function renderHome() {
         
         featuredContainer.innerHTML = `
             <div class="relative h-56 md:h-72 ${featured.theme.bg}">
-                <img src="${featured.path + featured.cover}" alt="${featured.title}" class="featured-img absolute inset-0 w-full h-full object-cover opacity-60">
+                <img src="${resolveCoverUrl(featured)}" alt="${featured.title}" class="featured-img absolute inset-0 w-full h-full object-cover opacity-60">
                 <div class="absolute inset-0 bg-gradient-to-r from-gray-900 via-gray-900/70 to-transparent z-10"></div>
                 <div class="absolute inset-0 bg-gradient-to-t from-gray-900/80 to-transparent z-10"></div>
                 <div class="relative z-20 h-full flex flex-col justify-end p-8">
@@ -186,7 +203,7 @@ async function renderHome() {
                     <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-2">${featured.title}</h2>
                     <p class="text-gray-300 text-sm max-w-lg mb-5 line-clamp-2">${featured.description}</p>
                     <div class="flex gap-3">
-                        <button onclick="launchGame('${featured.id}', '${playUrl}')" class="${featured.theme.btn} ${featured.theme.btnHover} text-white font-bold py-2.5 px-6 rounded-lg transition-colors duration-200 flex items-center gap-2 text-sm btn-press shadow-lg">
+                        <button onclick="launchGame('${featured.id}', '${playUrl}')" class="btn-action btn-play">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                             Play Now
                         </button>
@@ -217,7 +234,7 @@ async function renderHome() {
                 card.innerHTML = `
                     <div class="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 ${game.theme.bg} relative flex items-center justify-center">
                         <span class="absolute ${game.theme.text} font-bold text-[10px] uppercase select-none z-0">${game.title.substring(0, 2)}</span>
-                        <img src="${game.path + game.cover}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover z-10" onerror="this.style.opacity='0';">
+                        <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover z-10" onerror="this.style.opacity='0';">
                     </div>
                     <div class="flex flex-col justify-center min-w-0">
                         <h4 class="text-white font-bold text-sm truncate flex items-center gap-1.5">${installedIndicator} ${game.title}</h4>
@@ -292,7 +309,7 @@ async function renderLibrary(filterTerm = '') {
         card.innerHTML = `
             <div class="w-full h-48 ${game.theme.bg} relative overflow-hidden flex items-center justify-center">
                 <span class="absolute ${game.theme.text} font-bold tracking-wider text-lg uppercase select-none text-center px-4 z-0">${game.title}</span>
-                <img src="${game.path + game.cover}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 z-10" onerror="this.style.opacity='0';">
+                <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 z-10" onerror="this.style.opacity='0';">
             </div>
             <div class="p-5 flex flex-col flex-grow justify-between">
                 <div>
@@ -368,6 +385,7 @@ async function launchGame(gameId, url) {
 }
 
 async function showDetails(gameId) {
+    console.log("[DEBUG] app.js showDetails called for:", gameId);
     const gameDef = games.find(g => g.id === gameId);
     if (!gameDef) return;
 
@@ -380,8 +398,8 @@ async function showDetails(gameId) {
     document.getElementById('detailsTitle').textContent = game.title;
     document.getElementById('detailsDescription').textContent = game.description;
 
-    document.getElementById('detailsBannerBg').src = game.path + game.cover;
-    document.getElementById('detailsBannerImg').src = game.path + game.cover;
+    document.getElementById('detailsBannerBg').src = resolveCoverUrl(game);
+    document.getElementById('detailsBannerImg').src = resolveCoverUrl(game);
 
     const bannerContainer = document.getElementById('detailsBannerContainer');
     bannerContainer.className = `w-full h-64 md:h-80 relative overflow-hidden flex items-center justify-center ${game.theme.bg}`;
@@ -405,65 +423,9 @@ async function showDetails(gameId) {
         `).join('');
     }
 
-    // Build sidebar installation info
-    const sidebar = document.getElementById('detailsSidebar');
-    if (sidebar) {
-        const installedStatus = game.installed
-            ? '<span class="installed-badge">✓ Installed</span>'
-            : '<span class="not-installed-badge">Not Installed</span>';
-
-        const sourceLabel = game.installSource === 'bundled' ? 'Bundled with Game Hub'
-            : game.installSource === 'downloaded' ? 'Downloaded'
-            : '—';
-
-        const installedDate = game.installedAt ? formatDate(game.installedAt) : '—';
-
-        sidebar.innerHTML = `
-            <div>
-                <div class="details-section-title">Installation</div>
-                <div class="space-y-0">
-                    <div class="details-info-row">
-                        <span class="details-info-label">Status</span>
-                        <span class="details-info-value">${installedStatus}</span>
-                    </div>
-                    <div class="details-info-row">
-                        <span class="details-info-label">Source</span>
-                        <span class="details-info-value">${sourceLabel}</span>
-                    </div>
-                    <div class="details-info-row">
-                        <span class="details-info-label">Installed</span>
-                        <span class="details-info-value">${installedDate}</span>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    // Build actions
-    const actionsContainer = document.getElementById('detailsActions');
-    if (actionsContainer) {
-        actionsContainer.innerHTML = '';
-        game.actions.forEach(action => {
-            if (action.type === 'play') {
-                actionsContainer.innerHTML += `
-                    <button onclick="launchGame('${game.id}', '${game.path + action.url}')" class="${game.theme.btn} ${game.theme.btnHover} text-white font-bold py-3 px-8 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl btn-press">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        ${action.label}
-                    </button>
-                `;
-            }
-        });
-        const gameData = await Storage.getGameData(game.id);
-        const fav = gameData.favorite || false;
-        actionsContainer.innerHTML += `
-            <button id="favToggleBtn" class="fav-btn ${fav ? 'favorited' : ''}" onclick="toggleFavorite('${game.id}')">
-                <svg class="w-5 h-5 star-icon" fill="${fav ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
-                </svg>
-                ${fav ? 'Favorited' : 'Favorite'}
-            </button>
-        `;
-    }
+    // Build sidebar installation info and actions
+    updateDetailsSidebar(game);
+    await updateDetailsActions(game);
 
     // Build changelog
     const changelogContainer = document.getElementById('detailsChangelog');
@@ -498,6 +460,347 @@ async function showDetails(gameId) {
     }
 
     navigateTo('details');
+}
+
+// ==========================================
+// DOWNLOAD INTEGRATION
+// ==========================================
+
+/**
+ * Set up the download progress listener.
+ * Listens for progress events from the main process and updates the UI.
+ */
+function setupDownloadListener() {
+    if (typeof window.downloader?.onProgress !== 'function') {
+        console.warn('GameHub: window.downloader.onProgress not available');
+        return;
+    }
+
+    // Store cleanup function
+    downloadCleanup = window.downloader.onProgress((data) => {
+        const { gameId, status, percentage, bytes, total, downloadId, error } = data;
+
+        if (!gameId) return;
+
+        if (status === 'completed') {
+            // Download complete — refresh installed games cache and re-render
+            downloadStates.delete(gameId);
+            refreshInstalledGames().then(() => {
+                // Show completed state in modal
+                showDownloadCompleted(gameId);
+                // Update all UI views
+                updateGameUI(gameId);
+            });
+        } else if (status === 'error' || status === 'failed') {
+            console.error(`GameHub: Download failed for ${gameId}:`, error);
+            downloadStates.delete(gameId);
+            // Show error state in modal
+            showDownloadError(gameId, error || 'An unknown error occurred');
+            updateGameUI(gameId);
+        } else if (status === 'cancelled') {
+            downloadStates.delete(gameId);
+            // Close modal and restore UI
+            closeDownloadModal();
+            updateGameUI(gameId);
+        } else {
+            // Update progress
+            downloadStates.set(gameId, {
+                downloadId,
+                status,
+                percentage: percentage || 0,
+                bytes: bytes || 0,
+                total: total || 0
+            });
+            // Update the modal live
+            updateDownloadModal(gameId);
+            updateGameUI(gameId);
+        }
+    });
+}
+
+/**
+ * Update the UI for a specific game after download state changes.
+ * Refreshes the details view (if visible) and library/home cards.
+ */
+async function updateGameUI(gameId) {
+    // Use the router's current view to determine if we're on the details page
+    const routerCurrentView = getRouterCurrentView();
+    // If the details view is showing this game, refresh the actions
+    if (routerCurrentView === 'details' && currentDetailGameId === gameId) {
+        const gameDef = games.find(g => g.id === gameId);
+        if (gameDef) {
+            const game = await getGameWithPlayData(gameDef, Storage);
+            await updateDetailsActions(game);
+            updateDetailsSidebar(game);
+        }
+    }
+    // Refresh library and home so cards reflect new state
+    await renderLibrary(currentSearchTerm);
+    await renderHome();
+}
+
+/**
+ * Start installing (downloading) a game.
+ * @param {string} gameId - Game identifier
+ */
+async function installGame(gameId) {
+    // Prevent duplicate downloads
+    if (downloadStates.has(gameId)) {
+        console.log(`GameHub: Download already in progress for ${gameId}`);
+        return;
+    }
+
+    const gameDef = games.find(g => g.id === gameId);
+    if (!gameDef) {
+        console.error(`GameHub: No game definition found for ${gameId}`);
+        return;
+    }
+
+    // Get the active channel and its download metadata
+    const activeChannel = gameDef.activeChannel || 'stable';
+    const channelData = gameDef.channels?.[activeChannel];
+
+    if (!channelData?.download?.url) {
+        console.error(`GameHub: No download URL for ${gameId} channel ${activeChannel}`);
+        return;
+    }
+
+    const metadata = {
+        version: channelData.version || gameDef.version || '1.0.0',
+        channel: activeChannel,
+        download: {
+            url: channelData.download.url,
+            checksum: channelData.download.checksum || null
+        }
+    };
+
+    try {
+        const result = await window.downloader.start(gameId, metadata);
+        if (result && result.downloadId) {
+            downloadStates.set(gameId, {
+                downloadId: result.downloadId,
+                status: 'pending',
+                percentage: 0,
+                bytes: 0,
+                total: 0
+            });
+            // Open the download progress modal
+            openDownloadModal(gameId);
+            updateGameUI(gameId);
+        }
+    } catch (err) {
+        console.error(`GameHub: Failed to start download for ${gameId}:`, err);
+        downloadStates.delete(gameId);
+        // Show error in modal if it was open, otherwise update UI
+        showDownloadError(gameId, err.message || 'Failed to start download');
+        updateGameUI(gameId);
+    }
+}
+
+/**
+ * Cancel an ongoing download.
+ * @param {string} gameId - Game identifier
+ */
+async function cancelDownload(gameId) {
+    const dl = downloadStates.get(gameId);
+    if (!dl?.downloadId) return;
+
+    try {
+        await window.downloader.cancel(dl.downloadId);
+    } catch (err) {
+        console.error(`GameHub: Failed to cancel download for ${gameId}:`, err);
+    }
+
+    downloadStates.delete(gameId);
+    updateGameUI(gameId);
+}
+
+/**
+ * Determine the action state for a game.
+ * @param {Object} game - Game object with play data
+ * @returns {string} 'play' | 'install' | 'update' | 'downloading'
+ */
+function getGameActionState(game) {
+    console.log("[DEBUG] getGameActionState called for:", {
+        id: game.id,
+        installed: game.installed,
+        source: game.source,
+        path: game.path,
+        actions: JSON.parse(JSON.stringify(game.actions)),
+        isBundledGame: isBundledGame(game.id),
+        activeChannel: game.activeChannel,
+        channelVersion: game.channelVersion,
+        channels: game.channels ? Object.keys(game.channels) : null
+    });
+
+    // Bundled games always play (no download needed)
+    if (isBundledGame(game.id)) {
+        console.log("[DEBUG] getGameActionState → 'play' (bundled game)");
+        return 'play';
+    }
+
+    // Check if currently downloading
+    const dl = downloadStates.get(game.id);
+    if (dl && (dl.status === 'downloading' || dl.status === 'verifying' || dl.status === 'installing' || dl.status === 'pending')) {
+        console.log("[DEBUG] getGameActionState → 'downloading'");
+        return 'downloading';
+    }
+
+    // Not installed
+    if (!game.installed) {
+        console.log("[DEBUG] getGameActionState → 'install' (not installed)");
+        return 'install';
+    }
+
+    // Check for update availability
+    const activeChannel = game.activeChannel || 'stable';
+    const channelData = game.channels?.[activeChannel];
+    if (channelData?.version && channelData.version !== game.channelVersion) {
+        console.log("[DEBUG] getGameActionState → 'update' (channel version mismatch)");
+        return 'update';
+    }
+
+    // Installed and up to date
+    console.log("[DEBUG] getGameActionState → 'play' (installed, up to date)");
+    return 'play';
+}
+
+/**
+ * Update just the actions section in the details view.
+ * Used for live progress updates during download.
+ */
+async function updateDetailsActions(game) {
+    const actionsContainer = document.getElementById('detailsActions');
+    if (!actionsContainer) return;
+
+    const state = getGameActionState(game);
+    const dl = downloadStates.get(game.id);
+
+    // Get favorite state first to avoid race condition
+    const gameData = await Storage.getGameData(game.id);
+    const fav = gameData.favorite || false;
+
+    let html = '';
+
+    if (state === 'downloading' && dl) {
+        // Show progress bar during download
+        const pct = dl.percentage || 0;
+        const sizeText = (dl.bytes > 0 && dl.total > 0)
+            ? `${formatBytes(dl.bytes)} / ${formatBytes(dl.total)}`
+            : '';
+        const statusLabel = dl.status === 'verifying' ? 'Verifying...'
+            : dl.status === 'installing' ? 'Installing...'
+            : 'Downloading...';
+
+        html = `
+            <div class="w-full max-w-md">
+                <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-sm font-medium text-gray-300">${statusLabel}</span>
+                    <span class="text-xs font-mono text-gray-400">${pct}%</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                    <div class="bg-blue-500 h-2.5 rounded-full transition-all duration-200" style="width: ${pct}%"></div>
+                </div>
+                ${sizeText ? `<div class="text-xs text-gray-500 mt-1">${sizeText}</div>` : ''}
+                <button onclick="cancelDownload('${game.id}')" class="mt-3 text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">
+                    Cancel
+                </button>
+            </div>
+        `;
+    } else if (state === 'install') {
+        html = `
+            <button onclick="installGame('${game.id}')" class="btn-action btn-download">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                Download
+            </button>
+        `;
+    } else if (state === 'update') {
+        html = `
+            <button onclick="installGame('${game.id}')" class="btn-action btn-update">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                Update
+            </button>
+        `;
+    } else if (state === 'play') {
+        // Show the play button (bundled games or already installed)
+        // Downloaded games may not have actions defined — inject a default if missing
+        if (!game.actions.some(a => a.type === 'play')) {
+            game.actions.push({ type: 'play', label: 'Play', url: 'index.html' });
+        }
+        game.actions.forEach(action => {
+            if (action.type === 'play') {
+                html += `
+                    <button onclick="launchGame('${game.id}', '${game.path + action.url}')" class="btn-action btn-play">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Play
+                    </button>
+                `;
+            }
+        });
+    }
+
+    // Always add favorite button
+    html += `
+        <button id="favToggleBtn" class="fav-btn ${fav ? 'favorited' : ''}" onclick="toggleFavorite('${game.id}')">
+            <svg class="w-5 h-5 star-icon" fill="${fav ? 'currentColor' : 'none'}" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"></path>
+            </svg>
+            ${fav ? 'Favorited' : 'Favorite'}
+        </button>
+    `;
+
+    actionsContainer.innerHTML = html;
+}
+
+/**
+ * Update the sidebar installation info section in the details view.
+ */
+function updateDetailsSidebar(game) {
+    const sidebar = document.getElementById('detailsSidebar');
+    if (!sidebar) return;
+
+    const installedStatus = game.installed
+        ? '<span class="installed-badge">✓ Installed</span>'
+        : '<span class="not-installed-badge">Not Installed</span>';
+
+    const sourceLabel = game.installSource === 'bundled' ? 'Bundled with Game Hub'
+        : game.installSource === 'downloaded' ? 'Downloaded'
+        : '—';
+
+    const installedDate = game.installedAt ? formatDate(game.installedAt) : '—';
+
+    sidebar.innerHTML = `
+        <div>
+            <div class="details-section-title">Installation</div>
+            <div class="space-y-0">
+                <div class="details-info-row">
+                    <span class="details-info-label">Status</span>
+                    <span class="details-info-value">${installedStatus}</span>
+                </div>
+                <div class="details-info-row">
+                    <span class="details-info-label">Source</span>
+                    <span class="details-info-value">${sourceLabel}</span>
+                </div>
+                <div class="details-info-row">
+                    <span class="details-info-label">Installed</span>
+                    <span class="details-info-value">${installedDate}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Format bytes to a human-readable string.
+ * @param {number} bytes
+ * @returns {string}
+ */
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    const val = bytes / Math.pow(1024, i);
+    return `${val.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 // ==========================================
@@ -940,7 +1243,7 @@ async function renderStatistics() {
 
             card.innerHTML = `
                 <div class="flex items-center gap-4">
-                    <img src="${game.path + game.cover}" alt="${game.title}" class="w-14 h-14 rounded-lg object-cover shadow border border-gray-700">
+                    <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="w-14 h-14 rounded-lg object-cover shadow border border-gray-700">
                     <h4 class="text-lg font-bold text-white">${game.title}</h4>
                 </div>
                 ${statsHtml}
@@ -1116,12 +1419,203 @@ async function confirmBetaLaunch() {
 }
 
 // ==========================================
+// DOWNLOAD MODAL
+// ==========================================
+
+/**
+ * Open the download progress modal for a game.
+ * @param {string} gameId - Game identifier
+ */
+function openDownloadModal(gameId) {
+    const gameDef = games.find(g => g.id === gameId);
+    if (!gameDef) return;
+
+    downloadModalGameId = gameId;
+    downloadModalGameDef = gameDef;
+
+    // Set cover image
+    const coverImg = document.getElementById('downloadModalCoverImg');
+    const coverFallback = document.getElementById('downloadModalCoverFallback');
+    const coverUrl = resolveCoverUrl(gameDef);
+    if (coverUrl) {
+        coverImg.src = coverUrl;
+        coverImg.classList.remove('hidden');
+        coverFallback.classList.add('hidden');
+    } else {
+        coverImg.classList.add('hidden');
+        coverFallback.classList.remove('hidden');
+    }
+
+    // Set title
+    document.getElementById('downloadModalTitle').textContent = `Downloading ${gameDef.title}`;
+
+    // Reset to progress view
+    document.getElementById('downloadModalProgress').classList.remove('hidden');
+    document.getElementById('downloadModalCompleted').classList.add('hidden');
+    document.getElementById('downloadModalError').classList.add('hidden');
+
+    // Reset progress
+    document.getElementById('downloadModalBar').style.width = '0%';
+    document.getElementById('downloadModalPercent').textContent = '0%';
+    document.getElementById('downloadModalBytes').textContent = '';
+    document.getElementById('downloadModalStatus').textContent = 'Starting...';
+
+    // Show modal
+    openModal('downloadModal');
+}
+
+/**
+ * Close the download modal and clean up state.
+ */
+function closeDownloadModal() {
+    downloadModalGameId = null;
+    downloadModalGameDef = null;
+    closeModal('downloadModal');
+}
+
+/**
+ * Update the download modal with live progress.
+ * @param {string} gameId - Game identifier
+ */
+function updateDownloadModal(gameId) {
+    if (downloadModalGameId !== gameId) return;
+
+    const dl = downloadStates.get(gameId);
+    if (!dl) return;
+
+    const pct = dl.percentage || 0;
+    const sizeText = (dl.bytes > 0 && dl.total > 0)
+        ? `${formatBytes(dl.bytes)} / ${formatBytes(dl.total)}`
+        : '';
+
+    let statusText = 'Downloading...';
+    if (dl.status === 'verifying') {
+        statusText = 'Verifying files...';
+    } else if (dl.status === 'installing') {
+        statusText = 'Installing...';
+    }
+
+    document.getElementById('downloadModalBar').style.width = `${pct}%`;
+    document.getElementById('downloadModalPercent').textContent = `${pct}%`;
+    document.getElementById('downloadModalBytes').textContent = sizeText;
+    document.getElementById('downloadModalStatus').textContent = statusText;
+}
+
+/**
+ * Show the completed state in the download modal.
+ * @param {string} gameId - Game identifier
+ */
+function showDownloadCompleted(gameId) {
+    if (downloadModalGameId !== gameId) return;
+
+    // Hide progress, show completed
+    document.getElementById('downloadModalProgress').classList.add('hidden');
+    document.getElementById('downloadModalError').classList.add('hidden');
+    document.getElementById('downloadModalCompleted').classList.remove('hidden');
+
+    // Update title
+    const gameDef = games.find(g => g.id === gameId);
+    if (gameDef) {
+        document.getElementById('downloadModalTitle').textContent = gameDef.title;
+
+        // Use the universal btn-action btn-play classes so the Play Now button
+        // is visually identical to every other Play button in the launcher
+        const playBtn = document.getElementById('downloadModalPlayBtn');
+        if (playBtn) {
+            playBtn.className = 'btn-action btn-play';
+        }
+    }
+}
+
+/**
+ * Show the error state in the download modal.
+ * @param {string} gameId - Game identifier
+ * @param {string} errorMessage - Error description
+ */
+function showDownloadError(gameId, errorMessage) {
+    if (downloadModalGameId !== gameId) return;
+
+    // Hide progress, show error
+    document.getElementById('downloadModalProgress').classList.add('hidden');
+    document.getElementById('downloadModalCompleted').classList.add('hidden');
+    document.getElementById('downloadModalError').classList.remove('hidden');
+
+    // Set error reason
+    document.getElementById('downloadModalErrorReason').textContent = errorMessage;
+
+    // Update title
+    const gameDef = games.find(g => g.id === gameId);
+    if (gameDef) {
+        document.getElementById('downloadModalTitle').textContent = gameDef.title;
+    }
+}
+
+/**
+ * Cancel the current download from the modal.
+ */
+async function cancelDownloadFromModal() {
+    if (!downloadModalGameId) return;
+    await cancelDownload(downloadModalGameId);
+    closeDownloadModal();
+}
+
+/**
+ * Retry the failed download.
+ */
+async function retryDownload() {
+    if (!downloadModalGameId || !downloadModalGameDef) return;
+
+    // Reset modal to progress view
+    document.getElementById('downloadModalError').classList.add('hidden');
+    document.getElementById('downloadModalProgress').classList.remove('hidden');
+    document.getElementById('downloadModalBar').style.width = '0%';
+    document.getElementById('downloadModalPercent').textContent = '0%';
+    document.getElementById('downloadModalBytes').textContent = '';
+    document.getElementById('downloadModalStatus').textContent = 'Starting...';
+
+    const gameDef = downloadModalGameDef;
+    document.getElementById('downloadModalTitle').textContent = `Downloading ${gameDef.title}`;
+
+    // Start the download again
+    await installGame(downloadModalGameId);
+}
+
+/**
+ * Launch the game that was just downloaded from the modal.
+ */
+async function launchDownloadedGame() {
+    if (!downloadModalGameId || !downloadModalGameDef) return;
+
+    const gameDef = downloadModalGameDef;
+    const game = await getGameWithPlayData(gameDef, Storage);
+
+    // Find play action
+    let playUrl = null;
+    if (game.actions && game.actions.length > 0) {
+        const playAction = game.actions.find(a => a.type === 'play');
+        if (playAction) {
+            playUrl = game.path + playAction.url;
+        }
+    }
+
+    if (!playUrl) {
+        // Fallback: try index.html in the game path
+        playUrl = game.path + 'index.html';
+    }
+
+    closeDownloadModal();
+    await launchGame(downloadModalGameId, playUrl);
+}
+
+// ==========================================
 // GLOBAL FUNCTION EXPORTS FOR HTML
 // ==========================================
 
 window.navigateTo = navigateTo;
 window.launchGame = launchGame;
 window.showDetails = showDetails;
+window.installGame = installGame;
+window.cancelDownload = cancelDownload;
 window.handleSearch = handleSearch;
 window.clearSearch = clearSearch;
 window.setLibraryFilter = setLibraryFilter;
@@ -1159,3 +1653,10 @@ window.openModal = openModal;
 window.closeModal = closeModal;
 window.openResetDataModal = openResetDataModal;
 window.closeResetDataModal = closeResetDataModal;
+
+// Download modal functions
+window.openDownloadModal = openDownloadModal;
+window.closeDownloadModal = closeDownloadModal;
+window.cancelDownloadFromModal = cancelDownloadFromModal;
+window.retryDownload = retryDownload;
+window.launchDownloadedGame = launchDownloadedGame;

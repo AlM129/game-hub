@@ -169,6 +169,71 @@
         }
 
         /* ==========================================
+           LAUNCHER ACTION BUTTONS
+           ========================================== */
+        /* Shared base for all launcher action buttons */
+        .btn-action {
+            font-weight: 700;
+            padding: 0.75rem 2rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            cursor: pointer;
+            user-select: none;
+            border: none;
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+        }
+
+        .btn-action:hover {
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .btn-action:active {
+            transform: scale(0.97);
+        }
+
+        .btn-play {
+            background: #059669;
+            color: #ffffff;
+        }
+
+        .btn-play:hover {
+            background: #10b981;
+        }
+
+        .btn-download {
+            background: #2563eb;
+            color: #ffffff;
+        }
+
+        .btn-download:hover {
+            background: #3b82f6;
+        }
+
+        .btn-update {
+            background: #d97706;
+            color: #ffffff;
+        }
+
+        .btn-update:hover {
+            background: #f59e0b;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: #ffffff;
+        }
+
+        .btn-danger:hover {
+            background: #ef4444;
+        }
+
+        /* ==========================================
            BUTTON FEEDBACK
            ========================================== */
         .btn-press {
@@ -1034,6 +1099,83 @@
                     class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">Cancel</button>
                 <button onclick="confirmResetData()"
                     class="bg-red-600 hover:bg-red-500 text-white font-semibold py-2 px-6 rounded-lg transition-colors btn-press">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==========================================
+          DOWNLOAD PROGRESS MODAL
+          ========================================== -->
+    <div id="downloadModal"
+        class="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex items-center justify-center hidden opacity-0 transition-opacity duration-300">
+        <div class="bg-gray-800 border border-gray-700 rounded-2xl p-8 max-w-sm w-full mx-4 shadow-2xl transform scale-95 transition-transform duration-300 text-center"
+            id="downloadModalContent">
+
+            <!-- Game Icon / Cover -->
+            <div id="downloadModalCover" class="w-20 h-20 rounded-xl overflow-hidden mx-auto mb-4 bg-gray-700 flex items-center justify-center">
+                <img id="downloadModalCoverImg" src="" alt="" class="w-full h-full object-cover">
+                <span id="downloadModalCoverFallback" class="text-gray-500 font-bold text-lg hidden">🎮</span>
+            </div>
+
+            <!-- Game Title -->
+            <h3 id="downloadModalTitle" class="text-xl font-bold text-white mb-4">Downloading...</h3>
+
+            <!-- Progress Section (shown during download/verify/install) -->
+            <div id="downloadModalProgress">
+                <!-- Progress Bar -->
+                <div class="w-full bg-gray-700 rounded-full h-3 overflow-hidden mb-2">
+                    <div id="downloadModalBar" class="bg-blue-500 h-3 rounded-full transition-all duration-200" style="width: 0%"></div>
+                </div>
+
+                <!-- Percentage -->
+                <div id="downloadModalPercent" class="text-sm font-mono text-gray-400 mb-1">0%</div>
+
+                <!-- Bytes -->
+                <div id="downloadModalBytes" class="text-xs text-gray-500 mb-3"></div>
+
+                <!-- Status Text -->
+                <div id="downloadModalStatus" class="text-sm text-gray-300 font-medium">Downloading...</div>
+
+                <!-- Cancel Button -->
+                <button id="downloadModalCancelBtn" onclick="cancelDownloadFromModal()"
+                    class="mt-4 text-xs bg-red-900/30 text-red-400 hover:bg-red-900/50 px-4 py-2 rounded-lg font-bold transition-colors btn-press">
+                    Cancel
+                </button>
+            </div>
+
+            <!-- Completed Section (shown when done) -->
+            <div id="downloadModalCompleted" class="hidden">
+                <div class="text-5xl mb-3">✅</div>
+                <h3 class="text-xl font-bold text-white mb-1">Download Complete</h3>
+                <p class="text-gray-400 text-sm mb-6">Your game is ready to play!</p>
+                <div class="flex flex-col sm:flex-row justify-center gap-3">
+                    <button id="downloadModalPlayBtn" onclick="launchDownloadedGame()"
+                        class="text-white font-bold py-3 px-8 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl btn-press">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        Play Now
+                    </button>
+                    <button onclick="closeDownloadModal()"
+                        class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-3 px-8 rounded-lg transition-colors btn-press">
+                        Close
+                    </button>
+                </div>
+            </div>
+
+            <!-- Error Section (shown on failure) -->
+            <div id="downloadModalError" class="hidden">
+                <div class="text-5xl mb-3">❌</div>
+                <h3 class="text-xl font-bold text-white mb-1">Download Failed</h3>
+                <p id="downloadModalErrorReason" class="text-red-400 text-sm mb-6">An error occurred.</p>
+                <div class="flex flex-col sm:flex-row justify-center gap-3">
+                    <button id="downloadModalRetryBtn" onclick="retryDownload()"
+                        class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 px-6 rounded-lg transition-colors btn-press shadow-lg">
+                        Retry
+                    </button>
+                    <button onclick="closeDownloadModal()"
+                        class="bg-gray-700 hover:bg-gray-600 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors btn-press">
+                        Close
+                    </button>
+                </div>
             </div>
         </div>
     </div>

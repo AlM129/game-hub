@@ -36,3 +36,19 @@ export function getRarityBg(rarity, RARITY_CONFIG) {
     const config = RARITY_CONFIG[rarity] || RARITY_CONFIG.common;
     return config.bg;
 }
+
+/**
+ * Resolve a game's cover image URL.
+ * If the cover is already an absolute URL (http:// or https://), use it directly.
+ * Otherwise, prepend the game's path for local bundled assets.
+ * @param {Object} game - Game object with path and cover properties
+ * @returns {string} Resolved cover URL
+ */
+export function resolveCoverUrl(game) {
+    if (!game) return '';
+    if (!game.cover) return '';
+    if (game.cover.startsWith('http://') || game.cover.startsWith('https://')) {
+        return game.cover;
+    }
+    return (game.path || '') + game.cover;
+}

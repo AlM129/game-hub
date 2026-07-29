@@ -1,4 +1,19 @@
 const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('downloader', {
+    start: (gameId, metadata) => ipcRenderer.invoke('download:start', gameId, metadata),
+    cancel: (downloadId) => ipcRenderer.invoke('download:cancel', downloadId),
+    install: (downloadId) => ipcRenderer.invoke('download:install', downloadId),
+    status: (downloadId) => ipcRenderer.invoke('download:status', downloadId),
+    list: () => ipcRenderer.invoke('download:list'),
+    onProgress: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('download:progress', handler);
+        // Return cleanup function
+        return () => ipcRenderer.removeListener('download:progress', handler);
+    }
+});
+
 contextBridge.exposeInMainWorld('storage', {
     get: (key) => ipcRenderer.invoke('storage:get', key),
     set: (key, value) => ipcRenderer.invoke('storage:set', key, value),

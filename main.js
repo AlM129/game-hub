@@ -2,6 +2,14 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const Store = require('electron-store').default;
 const pkg = require('./package.json');
 
+// Download Manager
+const {
+    startDownload,
+    cancelDownload,
+    getDownloadStatus,
+    getActiveDownloads
+} = require('./src/downloader/manager');
+
 const SCHEMA_VERSION = 2;
 const DEFAULT_PROFILE_ID = 'default';
 const DEFAULT_PROFILE_NAME = 'Default';
@@ -119,24 +127,30 @@ function generateProfileId(name, existingProfiles) {
     return id;
 }
 
-const store = new Store({
-    name: 'gamehub-data',
-    defaults: normalizeStore({
-        metadata: {
-            schemaVersion: SCHEMA_VERSION,
-            version: SCHEMA_VERSION,
-            activeProfileId: DEFAULT_PROFILE_ID,
-            createdAt: nowIso(),
-            lastMigration: null
-        },
-        profiles: {
-            [DEFAULT_PROFILE_ID]: createDefaultProfile(DEFAULT_PROFILE_ID)
-        },
-        preferences: {}
-    })
-});
+let store = null;
 
-store.store = normalizeStore(store.store);
+function createStore() {
+    const s = new Store({
+        name: 'gamehub-data',
+        cwd: require('path').join(app.getPath('userData'), 'config'),
+        projectName: 'game-hub',
+        defaults: normalizeStore({
+            metadata: {
+                schemaVersion: SCHEMA_VERSION,
+                version: SCHEMA_VERSION,
+                activeProfileId: DEFAULT_PROFILE_ID,
+                createdAt: nowIso(),
+                lastMigration: null
+            },
+            profiles: {
+                [DEFAULT_PROFILE_ID]: createDefaultProfile(DEFAULT_PROFILE_ID)
+            },
+            preferences: {}
+        })
+    });
+    s.store = normalizeStore(s.store);
+    return s;
+}
 
 
 function createWindow() {
@@ -155,9 +169,13 @@ function createWindow() {
     });
 
     win.loadFile('index.html');
+    return win;
 }
 
 app.whenReady().then(() => {
+    // Initialize store (requires app to be ready for getPath)
+    store = createStore();
+
     // IPC Handlers for storage
     ipcMain.handle('storage:get', (event, key) => {
         return store.get(key);
@@ -442,6 +460,77 @@ app.whenReady().then(() => {
         store.set(`profiles.${id}`, normalizeProfile(id, profile));
         store.store = normalizeStore(store.store);
         return store.get(`profiles.${id}`);
+    });
+
+    // ==========================================
+    // Download IPC Handlers
+    // ==========================================
+
+    // Keep a reference to the main window for sending progress events
+    let mainWindow = null;
+
+    // Override createWindow to capture the window reference
+    const originalCreateWindow = createWindow;
+    createWindow = function() {
+        mainWindow = originalCreateWindow();
+        return mainWindow;
+    };
+
+    ipcMain.handle('download:start', (event, gameId, metadata) => {
+        const { downloadId } = startDownload(app, gameId, metadata, (progress) => {
+            // When download completes, persist to installedGames store
+            if (progress.status === 'completed') {
+                // Ensure path has a trailing slash for path concatenation
+                const installPath = progress.path
+                    ? (progress.path.endsWith('/') ? progress.path : progress.path + '/')
+                    : progress.path;
+                const installData = {
+                    id: gameId,
+                    version: metadata.version || '1.0.0',
+                    channel: metadata.channel || 'stable',
+                    source: 'downloaded',
+                    path: installPath,
+                    installedAt: progress.extractedAt || new Date().toISOString()
+                };
+                const installed = store.get('installedGames') || {};
+                installed[gameId] = installData;
+                store.set('installedGames', installed);
+                store.store = normalizeStore(store.store);
+                console.log(`GameHub: Saved downloaded game ${gameId} to installedGames`);
+            }
+
+            // Forward progress to the renderer
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('download:progress', progress);
+            }
+        });
+        return { downloadId };
+    });
+
+    ipcMain.handle('download:cancel', (event, downloadId) => {
+        const result = cancelDownload(downloadId);
+        return { success: result };
+    });
+
+    ipcMain.handle('download:install', async (event, downloadId) => {
+        // Get the download status to find the gameId and metadata
+        const status = getDownloadStatus(downloadId);
+        if (!status) {
+            throw new Error(`Download not found: ${downloadId}`);
+        }
+
+        // The pipeline already handles install on completion.
+        // This handler is for manual re-install from a completed download state.
+        // For now, we return the status — the pipeline auto-installs.
+        return { status: status.state };
+    });
+
+    ipcMain.handle('download:status', (event, downloadId) => {
+        return getDownloadStatus(downloadId);
+    });
+
+    ipcMain.handle('download:list', () => {
+        return getActiveDownloads();
     });
 
     // ==========================================
