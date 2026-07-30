@@ -43,3 +43,7 @@ contextBridge.exposeInMainWorld('profiles', {
 contextBridge.exposeInMainWorld('appInfo', {
     get: () => ipcRenderer.invoke('app:info')
 });
+
+contextBridge.exposeInMainWorld('gameHub', {
+    returnToLauncher: () => ipcRenderer.invoke('game:returnToLauncher')
+});

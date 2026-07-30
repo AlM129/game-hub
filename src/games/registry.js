@@ -8,10 +8,12 @@
 // New registry format:
 //   { games: { "game-id": { id, name, developer, genre, featured, thumbnail, metaUrl } } }
 // Old registry format:
-//   { games: [{ id, name, version, path, description, thumbnail, featured, source, package }] }
+//   { games: [{ id, name, version, description, thumbnail, featured, source, package }] }
 //
 // Per-game metadata (loaded lazily via metaUrl):
 //   { channels: { stable: { version, ... }, development: { version, ... } }, ... }
+//
+// All games are download-only — no bundled games are shipped with the launcher.
 
 import { getRegistryUrl, LOCAL_REGISTRY_URL, getUseRemoteRegistry, getRegistryBaseUrl } from './registry-source.js';
 import { Storage } from '../storage.js';
@@ -43,7 +45,7 @@ const metadataCache = {};
 // ==========================================
 // Profile-independent tracking of installed games
 
-export let installedGames = {};  // { gameId: { version, installPath, installedAt, source } }
+export let installedGames = {};  // { gameId: { id, version, path, installedAt } }
 
 /**
  * Load installed games from storage.
@@ -93,18 +95,19 @@ export function getInstalledVersion(gameId) {
  * @returns {string|null} Install path or null
  */
 export function getInstallPath(gameId) {
-    return installedGames[gameId]?.installPath || null;
+    const entry = installedGames[gameId];
+    return entry?.path || entry?.installPath || null;
 }
 
 /**
  * Mark a game as installed.
  * @param {string} gameId - Game identifier
- * @param {Object} data - Installation data { version, installPath, installedAt, source }
+ * @param {Object} data - Installation data { id, version, path, installedAt }
  */
 export async function markAsInstalled(gameId, data) {
     installedGames[gameId] = data;
     await Storage.setInstalledGame(gameId, data);
-    console.log(`GameHub: Marked ${gameId} as installed (source: ${data.source})`);
+    console.log(`GameHub: Marked ${gameId} as installed`);
 }
 
 /**
@@ -164,6 +167,20 @@ function loadCache() {
 }
 
 /**
+ * Validate that metadata has the expected structure.
+ * Checks that metadata has channels and at least one channel has download.url.
+ * @param {Object} metadata
+ * @returns {boolean}
+ */
+function isValidMetadataCache(metadata) {
+    if (!metadata?.channels) return false;
+
+    return Object.values(metadata.channels).some(
+        channel => channel.download?.url
+    );
+}
+
+/**
  * Get cached metadata for a specific game.
  * @param {string} gameId
  * @returns {Object|null}
@@ -173,7 +190,17 @@ function getCachedMetadata(gameId) {
         const raw = localStorage.getItem(CACHE_KEY);
         if (!raw) return null;
         const cache = JSON.parse(raw);
-        return cache.metadata?.[gameId] || null;
+        const metadata = cache.metadata?.[gameId];
+        
+        if (!metadata) return null;
+        
+        // Validate metadata structure
+        if (!isValidMetadataCache(metadata)) {
+            console.log(`GameHub: Ignoring stale metadata cache for ${gameId}`);
+            return null;
+        }
+        
+        return metadata;
     } catch {
         return null;
     }
@@ -303,7 +330,7 @@ export async function loadRegistry() {
  *   { registryVersion: 1, lastUpdated: "...", games: { "game-id": { id, name, metaUrl, ... } } }
  * 
  * Old format (legacy):
- *   { version: "1", featured: "...", launcherChangelog: [...], games: [{ id, name, path, ... }] }
+ *   { version: "1", featured: "...", launcherChangelog: [...], games: [{ id, name, ... }] }
  */
 function parseRegistryData(data) {
     // Store registry metadata
@@ -330,10 +357,7 @@ function parseRegistryData(data) {
                 featured: entry.featured || false,
                 thumbnail: entry.thumbnail || '',
                 metaUrl: entry.metaUrl || null,
-                // path is a launcher-specific field (for bundled games), not in remote registry
-                // but may be present in local registry.json for bundled game detection
-                path: entry.path || null,
-                source: entry.path ? 'bundled' : 'registry',
+                source: 'download',
                 package: { available: false, url: null, size: null, checksum: null, format: null }
             });
         }
@@ -342,13 +366,13 @@ function parseRegistryData(data) {
         console.log('GameHub: Detected old registry format (array)');
         gamesList = data.games.map(game => ({
             id: game.id,
-            path: game.path || null,
             version: game.version || null,
             featured: game.featured || false,
             description: game.description || '',
             thumbnail: game.thumbnail || '',
             name: game.name || game.id,
-            source: game.source || 'bundled',
+            // Migrate old bundled entries to download source
+            source: 'download',
             package: game.package || { available: false, url: null, size: null, checksum: null, format: null },
             // Old format entries may also have metaUrl if partially migrated
             metaUrl: game.metaUrl || null,
@@ -390,20 +414,8 @@ export async function loadGameMetadata(gameId) {
         return null;
     }
 
-    // If no metaUrl, try loading from local game.json (bundled games)
+    // If no metaUrl, no metadata available
     if (!entry.metaUrl) {
-        if (entry.path) {
-            try {
-                const response = await fetch(`${entry.path}game.json`);
-                if (response.ok) {
-                    const manifest = await response.json();
-                    metadataCache[gameId] = manifest;
-                    return manifest;
-                }
-            } catch (error) {
-                console.warn(`GameHub: Failed to load local manifest for ${gameId}:`, error.message);
-            }
-        }
         return null;
     }
 

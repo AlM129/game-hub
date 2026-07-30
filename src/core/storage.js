@@ -167,7 +167,7 @@ export const Storage = {
 
     /**
      * Get all installed games.
-     * @returns {Object} Map of gameId -> { version, installPath, installedAt, source }
+     * @returns {Object} Map of gameId -> { version, path, installedAt, source }
      */
     async getInstalledGames() {
         return (await this.get('installedGames')) || {};
@@ -176,7 +176,7 @@ export const Storage = {
     /**
      * Set installed game data.
      * @param {string} gameId - Game identifier
-     * @param {Object} data - Installation data { version, installPath, installedAt, source }
+     * @param {Object} data - Installation data { version, path, installedAt, source }
      */
     async setInstalledGame(gameId, data) {
         const installed = await this.getInstalledGames();

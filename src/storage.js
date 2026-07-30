@@ -5,7 +5,7 @@
 // through the new electron-store-backed core storage system.
 //
 // Exported API matches the original Storage object so that existing
-// launcher code (app.js, games.js) works without modification.
+// launcher code (app.js) works without modification.
 //
 // IMPORTANT: All profile-owned data (achievements, statistics, settings,
 // saves) is resolved against the ACTIVE profile at runtime. This ensures
@@ -200,7 +200,7 @@ export const Storage = {
 
     /**
      * Get all installed games.
-     * @returns {Object} Map of gameId -> { version, installPath, installedAt, source }
+     * @returns {Object} Map of gameId -> { version, path, installedAt, source }
      */
     async getInstalledGames() {
         return await CoreStorage.getInstalledGames();
@@ -209,7 +209,7 @@ export const Storage = {
     /**
      * Set installed game data.
      * @param {string} gameId - Game identifier
-     * @param {Object} data - Installation data { version, installPath, installedAt, source }
+     * @param {Object} data - Installation data { version, path, installedAt, source }
      */
     async setInstalledGame(gameId, data) {
         await CoreStorage.setInstalledGame(gameId, data);

@@ -5,43 +5,34 @@
 // Supports the new game-hub-registry format (object map with metaUrl)
 // while maintaining backwards compatibility.
 //
-// Game manifests now come from two sources:
-//   1. Registry metadata (remote, via metaUrl) — for display info, channels, versions
-//   2. Local game.json (bundled) — for actions, themes, and actual game code
+// Architecture (download-only):
+//   1. Load registry
+//   2. Load installedGames
+//   3. Merge installation data into registry entries
+//   4. Return game list
+//
+// All games come from the registry and are installed through the downloader.
+// No bundled games are shipped with the launcher.
 
 import { loadRegistry, loadInstalledGames, gamesRegistry, registryMeta, installedGames, isGameInstalled, markAsInstalled, loadGameMetadata, getCachedGameMetadata } from './registry.js';
 
 // ==========================================
-// BUNDLED GAME MAPPING
+// DEFAULT GAME DATA
 // ==========================================
-// Maps game IDs to their local bundled paths.
-// This is a launcher-side configuration — the remote registry
-// provides metadata only, not source locations.
-// Each entry points to the local game directory containing game.json.
+// Default values for games that haven't been installed yet.
+// These are used when no local game.json is available.
 
-const BUNDLED_GAMES = {
-    "tactical-drone-defense": "games/tactical-drone-defense/",
-    "sky-ace": "games/sky-ace/",
-    "neon-survival": "games/neon-survival/"
+const DEFAULT_THEME = {
+    bg: 'bg-gray-900',
+    text: 'text-gray-400',
+    borderHover: 'hover:border-blue-500',
+    linkText: 'text-blue-400',
+    linkHover: 'hover:text-blue-300'
 };
 
-/**
- * Get the local bundled path for a game, if it exists.
- * @param {string} gameId
- * @returns {string|null}
- */
-function getBundledPath(gameId) {
-    return BUNDLED_GAMES[gameId] || null;
-}
-
-/**
- * Check if a game is bundled locally.
- * @param {string} gameId
- * @returns {boolean}
- */
-export function isBundledGame(gameId) {
-    return gameId in BUNDLED_GAMES;
-}
+const DEFAULT_ACTIONS = [
+    { type: 'play', label: 'Play', url: 'index.html' }
+];
 
 // ==========================================
 // GAME DATA MODEL
@@ -56,27 +47,33 @@ export function getGames() {
 /**
  * Load the game registry from JSON, then load game manifests.
  * This is called once at startup.
+ *
+ * Architecture:
+ *   1. Load the registry (from remote or local fallback)
+ *   2. Load installed games from persistent storage
+ *   3. Build game objects from registry metadata + installation data
+ *   4. Return game list
  */
 export async function loadGameManifests() {
     // Step 1: Load the registry (from the new game-hub-registry or local fallback)
     await loadRegistry();
-    
+
     if (gamesRegistry.length === 0) {
         console.warn('GameHub: No games found in registry');
         _games.length = 0;
         return [];
     }
-    
-    // Step 2: Load each game's data from registry metadata + local game.json
+
+    // Step 2: Load installed games from storage
+    await loadInstalledGames();
+
+    // Step 3: Build game objects from registry metadata + installation data
     const loadedGames = [];
-    
+
     for (const registry of gamesRegistry) {
         try {
-            let manifest = null;
             let metadata = null;
             let title = registry.name || registry.id;
-            let actions = [];
-            let theme = {};
             let version = registry.version || null;
             let description = registry.description || '';
             let thumbnail = registry.thumbnail || '';
@@ -95,7 +92,7 @@ export async function loadGameManifests() {
                     genre = metadata.genre || genre;
                     description = metadata.description || description;
                     channels = metadata.channels || null;
-                    
+
                     // Thumbnail may be an object { url, alt } in new format
                     if (metadata.media?.thumbnail?.url) {
                         thumbnail = metadata.media.thumbnail.url;
@@ -104,7 +101,7 @@ export async function loadGameManifests() {
                         thumbnail = metadata.media.thumbnail;
                         banner = metadata.media.thumbnail;
                     }
-                    
+
                     // Use stable channel version if available
                     if (metadata.channels?.stable?.version) {
                         version = metadata.channels.stable.version;
@@ -112,59 +109,24 @@ export async function loadGameManifests() {
                 }
             }
 
-            // Step B: Determine local path — from registry (legacy) or bundled mapping
-            const localPath = registry.path || getBundledPath(registry.id);
+            // Step B: Get installation data (if the game is installed)
+            const installData = installedGames[registry.id] || null;
+            const installPath = installData?.path || installData?.installPath || null;
 
-            // Step C: Load local game.json for bundled games (actions, theme, etc.)
-            if (localPath) {
-                const response = await fetch(`${localPath}game.json`);
-                if (response.ok) {
-                    const gameJsonManifest = await response.json();
-                    manifest = gameJsonManifest;
-                    
-                    // Use themeConfig if available, otherwise fallback to theme string
-                    theme = gameJsonManifest.themeConfig || gameJsonManifest.theme || {};
-                    
-                    // Map manifest fields
-                    title = gameJsonManifest.title || gameJsonManifest.name || title;
-                    
-                    // Actions URLs are relative to game folder
-                    actions = (gameJsonManifest.actions || []).map(a => ({
-                        ...a,
-                        url: a.url || 'index.html'
-                    }));
-                    
-                    // Local cover image takes priority
-                    if (gameJsonManifest.cover) {
-                        thumbnail = gameJsonManifest.cover;
-                        banner = gameJsonManifest.cover;
-                    }
-                    
-                    // Local manifest version as fallback
-                    if (gameJsonManifest.version && !version) {
-                        version = gameJsonManifest.version;
-                    }
-                } else {
-                    console.warn(`GameHub: Failed to load local manifest for ${registry.id}, using registry metadata`);
-                }
-            } else {
-                console.log(`GameHub: Registry-only entry for ${registry.id}, no local path for manifest`);
-            }
-            
             // Build game object from all available data
             const game = {
                 id: registry.id,
                 title: title,
                 name: title,
                 version: version,
-                path: localPath,
+                path: installPath || null,
                 description: description,
                 thumbnail: thumbnail,
                 banner: banner,
                 cover: banner,  // Alias for backward compatibility with app.js
-                theme: theme,
-                actions: actions,
-                source: localPath ? 'bundled' : (registry.source || 'registry'),
+                theme: DEFAULT_THEME,
+                actions: DEFAULT_ACTIONS,
+                source: 'download',
                 package: registry.package || { available: false, url: null, size: null, checksum: null, format: null },
                 // New fields from registry metadata
                 developer: developer,
@@ -172,8 +134,8 @@ export async function loadGameManifests() {
                 channels: channels,
                 metaUrl: registry.metaUrl
             };
-            
-            // For registry-only games (no local path), resolve thumbnail as absolute URL
+
+            // For registry-only games (not installed), resolve thumbnail as absolute URL
             if (!game.path && game.thumbnail && !game.thumbnail.startsWith('http://') && !game.thumbnail.startsWith('https://') && registry.metaUrl) {
                 // The thumbnail is relative to the metadata file location, so resolve it
                 const metaBase = registry.metaUrl.substring(0, registry.metaUrl.lastIndexOf('/') + 1);
@@ -184,16 +146,7 @@ export async function loadGameManifests() {
                     game.thumbnail = absoluteCover;
                 }
             }
-            
-            // Merge any extra manifest fields (for built-in games that have them)
-            if (manifest) {
-                Object.keys(manifest).forEach(key => {
-                    if (!(key in game)) {
-                        game[key] = manifest[key];
-                    }
-                });
-            }
-            
+
             // Merge any extra metadata fields not already set
             if (metadata) {
                 Object.keys(metadata).forEach(key => {
@@ -202,13 +155,13 @@ export async function loadGameManifests() {
                     }
                 });
             }
-            
+
             loadedGames.push(game);
         } catch (error) {
             console.warn(`GameHub: Error loading game data for ${registry.id}:`, error);
         }
     }
-    
+
     // Clear and push to maintain the same array reference
     _games.length = 0;
     _games.push(...loadedGames);
@@ -240,75 +193,6 @@ export function getRegistryVersion() {
 export { registryMeta, launcherChangelog } from './registry.js';
 
 // ==========================================
-// BUNDLED GAME AUTO-DETECTION
-// ==========================================
-// Automatically detects and registers locally bundled games.
-// Works with both old format (path-based) and new format
-// (where bundled games are tracked by their local path).
-
-/**
- * Detect bundled games by checking registry entries with local paths.
- * This runs after registry load to mark existing local games as installed.
- */
-export async function detectBundledGames() {
-    console.log('GameHub: Detecting bundled games...');
-    let detectedCount = 0;
-
-    for (const registryEntry of gamesRegistry) {
-        // Determine local path — from registry (legacy) or bundled mapping
-        const localPath = registryEntry.path || getBundledPath(registryEntry.id);
-
-        // Skip if no local path (registry-only games — not bundled locally)
-        if (!localPath) {
-            continue;
-        }
-
-        // Skip if already marked as installed
-        if (isGameInstalled(registryEntry.id)) {
-            continue;
-        }
-
-        // Try to load manifest to verify the game exists locally
-        try {
-            const response = await fetch(`${localPath}game.json`);
-            if (!response.ok) {
-                console.warn(`GameHub: Bundled game manifest not found: ${registryEntry.id}`);
-                continue;
-            }
-
-            const manifest = await response.json();
-
-            // Get version from manifest, or from channels metadata, or from registry
-            let installedVersion = manifest.version || registryEntry.version || '1.0.0';
-            
-            // Try to get metadata for better version info
-            if (registryEntry.metaUrl) {
-                const metadata = getCachedGameMetadata(registryEntry.id);
-                if (metadata?.channels?.stable?.version) {
-                    installedVersion = metadata.channels.stable.version;
-                }
-            }
-
-            // Mark as installed with 'bundled' source
-            await markAsInstalled(registryEntry.id, {
-                version: installedVersion,
-                installPath: localPath,
-                installedAt: new Date().toISOString(),
-                source: 'bundled'
-            });
-
-            console.log(`GameHub: Auto-detected bundled game: ${registryEntry.id} v${installedVersion}`);
-            detectedCount++;
-        } catch (error) {
-            console.warn(`GameHub: Could not detect ${registryEntry.id}:`, error.message);
-        }
-    }
-
-    console.log(`GameHub: Detected ${detectedCount} bundled games`);
-    return detectedCount;
-}
-
-// ==========================================
 // PLAY DATA HELPERS
 // ==========================================
 
@@ -319,18 +203,14 @@ export async function getGameWithPlayData(game, Storage) {
     const pd = await Storage.getGameData(game.id);
     const activeChannel = await getActiveChannel(game.id, Storage);
     const channelVersion = getChannelVersion(game, activeChannel) || game.version;
-    
+
     // Get installation state
     const isInstalled = isGameInstalled(game.id);
     const installData = getInstalledGameData(game.id);
 
-    // Resolve the launch path:
-    //   1. Downloaded games: use the absolute path stored by the downloader
-    //   2. Bundled games: use the relative path from the registry
-    //   3. If downloaded copy exists, prefer it over bundled
-    let resolvedPath = installData?.source === 'downloaded' && installData?.path
-        ? installData.path
-        : game.path;
+    // Resolve the launch path from the installation data
+    // Downloaded games use the absolute path stored by the downloader
+    let resolvedPath = installData?.path || installData?.installPath || null;
 
     // Ensure path has a trailing slash so that concatenation with
     // cover/action URLs works correctly (e.g. "path/cover.png"
@@ -347,9 +227,8 @@ export async function getGameWithPlayData(game, Storage) {
         activeChannel: activeChannel,
         channelVersion: channelVersion,
         installed: isInstalled,
-        path: resolvedPath,
-        installPath: installData?.path || installData?.installPath || game.path,
-        installSource: installData?.source || (game.path ? 'bundled' : null),
+        path: resolvedPath || game.path,
+        installPath: installData?.path || installData?.installPath || null,
         installedAt: installData?.installedAt || null
     };
 }
@@ -377,18 +256,18 @@ export async function getRecentlyPlayed(Storage) {
 // CHANNEL HELPERS
 // ==========================================
 
-import { 
-    getActiveChannel, 
-    setActiveChannel, 
-    getAvailableChannels, 
-    getChannelVersion, 
-    getChannelChangelog, 
-    getLatestChannelEntry, 
-    getLatestChangelogEntry, 
-    getLatestChangelogEntryByGameId, 
-    hasNewUpdates, 
-    markUpdatesAsSeen, 
-    getLatestChannelEntryByGameId, 
+import {
+    getActiveChannel,
+    setActiveChannel,
+    getAvailableChannels,
+    getChannelVersion,
+    getChannelChangelog,
+    getLatestChannelEntry,
+    getLatestChangelogEntry,
+    getLatestChangelogEntryByGameId,
+    hasNewUpdates,
+    markUpdatesAsSeen,
+    getLatestChannelEntryByGameId,
     getGamesWithNewUpdates
 } from './registry.js';
 

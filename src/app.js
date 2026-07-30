@@ -4,12 +4,11 @@
 // Thin entry point that wires all modules together
 
 import { Storage } from './storage.js';
-import { getGames, loadGameManifests, detectBundledGames, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog, getFeaturedGameId, isBundledGame, refreshInstalledGames } from './games/loader.js';
-import { loadInstalledGames } from './games/registry.js';
+import { getGames, loadGameManifests, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog, getFeaturedGameId, refreshInstalledGames } from './games/loader.js';
 import { initialize as initAchievements, achievements, getAchievementDefinitions, addGameAchievements, RARITY_CONFIG } from './systems/achievements/manager.js';
 import { navigateTo, getCurrentView as getRouterCurrentView } from './core/router.js';
 import { GameHub } from './core/events.js';
-import { formatDate, formatLastPlayed, getChannelBadge, getRarityBadge, getRarityBg, resolveCoverUrl } from './utils.js';
+import { formatDate, formatLastPlayed, getChannelBadge, getRarityBadge, getRarityBg, resolveCoverUrl, resolveGameUrl } from './utils.js';
 import { CHANNEL_CONFIG } from './games/registry.js';
 
 // Re-export games for backward compatibility
@@ -44,19 +43,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Step 1: Check if migration from old localStorage format is needed
         await checkAndMigrate();
 
-        // Step 2: Load game manifests from game.json files
+        // Step 2: Load game manifests from registry and installed games from storage
+        // loadGameManifests() handles both registry loading and installed games loading
         await loadGameManifests();
 
-        // Step 3: Load installed games from persistent storage (downloaded games)
-        // This MUST happen before detectBundledGames() so that downloaded games
-        // are already in memory and won't be overwritten by bundled detection.
-        await loadInstalledGames();
-
-        // Step 4: Detect and register bundled games as installed
-        // Skips games already marked as installed (including downloaded games)
-        await detectBundledGames();
-
-        // Step 4: Initialize achievements system
+        // Step 3: Initialize achievements system
         initAchievements();
 
         // Step 4: Set up event listeners and download listener
@@ -191,7 +182,7 @@ async function renderHome() {
     const featuredContainer = document.getElementById('featuredBanner');
     if (featured && featuredContainer) {
         const playAction = featured.actions.find(a => a.type === 'play');
-        const playUrl = playAction ? (featured.path + playAction.url) : '#';
+        const playUrl = playAction ? resolveGameUrl(featured, playAction.url) : '#';
         
         featuredContainer.innerHTML = `
             <div class="relative h-56 md:h-72 ${featured.theme.bg}">
@@ -427,6 +418,9 @@ async function showDetails(gameId) {
     updateDetailsSidebar(game);
     await updateDetailsActions(game);
 
+    // Build achievements section
+    await buildDetailsAchievements(game.id);
+
     // Build changelog
     const changelogContainer = document.getElementById('detailsChangelog');
     if (changelogContainer) {
@@ -621,34 +615,14 @@ async function cancelDownload(gameId) {
  * @returns {string} 'play' | 'install' | 'update' | 'downloading'
  */
 function getGameActionState(game) {
-    console.log("[DEBUG] getGameActionState called for:", {
-        id: game.id,
-        installed: game.installed,
-        source: game.source,
-        path: game.path,
-        actions: JSON.parse(JSON.stringify(game.actions)),
-        isBundledGame: isBundledGame(game.id),
-        activeChannel: game.activeChannel,
-        channelVersion: game.channelVersion,
-        channels: game.channels ? Object.keys(game.channels) : null
-    });
-
-    // Bundled games always play (no download needed)
-    if (isBundledGame(game.id)) {
-        console.log("[DEBUG] getGameActionState → 'play' (bundled game)");
-        return 'play';
-    }
-
     // Check if currently downloading
     const dl = downloadStates.get(game.id);
     if (dl && (dl.status === 'downloading' || dl.status === 'verifying' || dl.status === 'installing' || dl.status === 'pending')) {
-        console.log("[DEBUG] getGameActionState → 'downloading'");
         return 'downloading';
     }
 
     // Not installed
     if (!game.installed) {
-        console.log("[DEBUG] getGameActionState → 'install' (not installed)");
         return 'install';
     }
 
@@ -656,12 +630,10 @@ function getGameActionState(game) {
     const activeChannel = game.activeChannel || 'stable';
     const channelData = game.channels?.[activeChannel];
     if (channelData?.version && channelData.version !== game.channelVersion) {
-        console.log("[DEBUG] getGameActionState → 'update' (channel version mismatch)");
         return 'update';
     }
 
     // Installed and up to date
-    console.log("[DEBUG] getGameActionState → 'play' (installed, up to date)");
     return 'play';
 }
 
@@ -722,15 +694,16 @@ async function updateDetailsActions(game) {
             </button>
         `;
     } else if (state === 'play') {
-        // Show the play button (bundled games or already installed)
+        // Show the play button for installed games
         // Downloaded games may not have actions defined — inject a default if missing
         if (!game.actions.some(a => a.type === 'play')) {
             game.actions.push({ type: 'play', label: 'Play', url: 'index.html' });
         }
         game.actions.forEach(action => {
             if (action.type === 'play') {
+                const playUrl = resolveGameUrl(game, action.url);
                 html += `
-                    <button onclick="launchGame('${game.id}', '${game.path + action.url}')" class="btn-action btn-play">
+                    <button onclick="launchGame('${game.id}', '${playUrl}')" class="btn-action btn-play">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                         Play
                     </button>
@@ -753,6 +726,58 @@ async function updateDetailsActions(game) {
 }
 
 /**
+ * Build the achievements section in the details view.
+ * Shows a compact summary of the game's achievements with unlock progress.
+ * @param {string} gameId - Game identifier
+ */
+async function buildDetailsAchievements(gameId) {
+    const container = document.getElementById('detailsAchievements');
+    if (!container) return;
+
+    const defs = getAchievementDefinitions(gameId);
+    const unlockedData = await Storage.getAchievements(gameId);
+
+    const defsArray = Object.values(defs);
+    if (defsArray.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-xs italic">No achievements defined for this game yet.</p>';
+        return;
+    }
+
+    const unlockedCount = Object.keys(unlockedData).length;
+    const totalCount = defsArray.length;
+    const pct = totalCount > 0 ? Math.round((unlockedCount / totalCount) * 100) : 0;
+
+    let html = `
+        <div class="flex items-center justify-between mb-3">
+            <span class="text-gray-400 text-xs font-medium">${unlockedCount} / ${totalCount} unlocked</span>
+            <span class="text-gray-500 text-[10px] font-mono">${pct}%</span>
+        </div>
+        <div class="w-full bg-gray-700 rounded-full h-1.5 mb-3">
+            <div class="bg-blue-500 h-1.5 rounded-full transition-all" style="width: ${pct}%"></div>
+        </div>
+    `;
+
+    // Show first 3 achievements as compact items
+    const shown = defsArray.slice(0, 3);
+    shown.forEach(ach => {
+        const isUnlocked = !!unlockedData[ach.id];
+        html += `
+            <div class="flex items-center gap-2 py-1 ${isUnlocked ? '' : 'opacity-50'}">
+                <span class="text-sm">${ach.icon}</span>
+                <span class="text-xs text-gray-400 truncate flex-grow">${ach.title}</span>
+                <span class="text-[10px] ${isUnlocked ? 'text-green-400' : 'text-gray-600'}">${isUnlocked ? '✅' : '🔒'}</span>
+            </div>
+        `;
+    });
+
+    if (defsArray.length > 3) {
+        html += `<div class="text-[10px] text-gray-600 mt-1">+${defsArray.length - 3} more</div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+/**
  * Update the sidebar installation info section in the details view.
  */
 function updateDetailsSidebar(game) {
@@ -763,9 +788,7 @@ function updateDetailsSidebar(game) {
         ? '<span class="installed-badge">✓ Installed</span>'
         : '<span class="not-installed-badge">Not Installed</span>';
 
-    const sourceLabel = game.installSource === 'bundled' ? 'Bundled with Game Hub'
-        : game.installSource === 'downloaded' ? 'Downloaded'
-        : '—';
+    const sourceLabel = game.installed ? 'Downloaded' : '—';
 
     const installedDate = game.installedAt ? formatDate(game.installedAt) : '—';
 
@@ -1594,13 +1617,13 @@ async function launchDownloadedGame() {
     if (game.actions && game.actions.length > 0) {
         const playAction = game.actions.find(a => a.type === 'play');
         if (playAction) {
-            playUrl = game.path + playAction.url;
+            playUrl = resolveGameUrl(game, playAction.url);
         }
     }
 
     if (!playUrl) {
         // Fallback: try index.html in the game path
-        playUrl = game.path + 'index.html';
+        playUrl = resolveGameUrl(game, 'index.html');
     }
 
     closeDownloadModal();
@@ -1634,6 +1657,7 @@ window.renderAchievements = renderAchievements;
 window.getCurrentView = () => currentView;
 window.getPreviousView = () => previousView;
 window.getCurrentDetailGameId = () => currentDetailGameId;
+window.buildDetailsAchievements = buildDetailsAchievements;
 
 // Profile functions
 window.openProfileSwitcher = openProfileSwitcher;

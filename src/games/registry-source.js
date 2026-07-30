@@ -4,8 +4,9 @@
 // Provides URLs for the game registry with remote-first loading.
 // Tries remote GitHub-hosted registry first, falls back to local file.
 //
-// The new registry (game-hub-registry) contains only metadata and release info.
-// Game source code remains in the local games/ directory.
+// The registry contains only metadata and release info.
+// All games are downloaded from GitHub releases and installed to
+// Application Support/Game Hub/games/.
 
 export const LOCAL_REGISTRY_URL = 'src/games/registry.json';
 

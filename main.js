@@ -487,8 +487,6 @@ app.whenReady().then(() => {
                 const installData = {
                     id: gameId,
                     version: metadata.version || '1.0.0',
-                    channel: metadata.channel || 'stable',
-                    source: 'downloaded',
                     path: installPath,
                     installedAt: progress.extractedAt || new Date().toISOString()
                 };
@@ -542,6 +540,14 @@ app.whenReady().then(() => {
             version: pkg.version,
             schemaVersion: SCHEMA_VERSION
         };
+    });
+
+    ipcMain.handle('game:returnToLauncher', () => {
+        const mainWindow = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+        if (mainWindow) {
+            const launcherPath = require('path').join(__dirname, 'index.html');
+            mainWindow.loadFile(launcherPath);
+        }
     });
 
     createWindow();

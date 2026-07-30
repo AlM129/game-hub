@@ -1214,7 +1214,15 @@ function init() {
     document.getElementById('deploy-back-btn').addEventListener('click', () => { resetGame(); requestLock(); });
     document.getElementById('abort-gameover-btn').addEventListener('click', () => { stopBossMusic(); showMenu('MAIN'); playerHealth = 0; stopGameOverMusic(); });
 
-    const returnToLauncher = () => { stopBossMusic(); stopGameOverMusic(); window.location.href = '../../index.html'; };
+    const returnToLauncher = () => { 
+        stopBossMusic(); 
+        stopGameOverMusic(); 
+        if (window.gameHub?.returnToLauncher) {
+            window.gameHub.returnToLauncher();
+        } else {
+            window.location.href = '../../index.html';
+        }
+    };
     document.getElementById('launcher-main-btn').addEventListener('click', returnToLauncher);
     document.getElementById('launcher-pause-btn').addEventListener('click', returnToLauncher);
     document.getElementById('launcher-gameover-btn').addEventListener('click', returnToLauncher);
