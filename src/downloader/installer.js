@@ -102,7 +102,18 @@ function detectCommonParent(zip) {
  * @returns {{ path: string, extractedAt: string }} Installation result
  */
 function extractZip(app, gameId, zipPath) {
-    const installPath = ensureGameDir(app, gameId);
+    const installPath = getGameInstallPath(app, gameId);
+    const stagingPath = installPath + '.tmp';
+
+    // 1. Clean up staging directory before starting
+    try {
+        fs.rmSync(stagingPath, { recursive: true, force: true });
+    } catch (e) {
+        console.warn(`[Installer] Failed to remove stale staging path: ${e.message}`);
+    }
+
+    // Ensure staging directory exists
+    fs.mkdirSync(stagingPath, { recursive: true });
 
     try {
         // Debug: log file info before adm-zip extraction
@@ -110,14 +121,24 @@ function extractZip(app, gameId, zipPath) {
         console.log(`[Installer] Extracting ZIP for ${gameId}:`);
         console.log(`[Installer]   Path: ${zipPath}`);
         console.log(`[Installer]   Size: ${stats.size} bytes`);
-        const header = fs.readFileSync(zipPath).subarray(0, 4);
+        // Read only the first 4 bytes to validate the ZIP magic signature.
+        // Avoids loading the entire archive into memory — large games can be
+        // hundreds of MB, which would otherwise block the main process.
+        const fd = fs.openSync(zipPath, 'r');
+        let header;
+        try {
+            header = Buffer.alloc(4);
+            fs.readSync(fd, header, 0, 4, 0);
+        } finally {
+            fs.closeSync(fd);
+        }
         console.log(`[Installer]   Header (hex): ${header.toString('hex')}`);
         const isValidZip = header[0] === 0x50 && header[1] === 0x4B && header[2] === 0x03 && header[3] === 0x04;
         console.log(`[Installer]   Valid ZIP signature: ${isValidZip}`);
 
         const zip = new AdmZip(zipPath);
         const entries = zip.getEntries();
-        const root = path.resolve(installPath);
+        const root = path.resolve(stagingPath);
         const commonParent = detectCommonParent(zip);
 
         // Pre-validate all ZIP entries to prevent path traversal (Zip Slip)
@@ -130,7 +151,7 @@ function extractZip(app, gameId, zipPath) {
 
             if (!relativePath) continue;
 
-            const targetPath = path.resolve(installPath, relativePath);
+            const targetPath = path.resolve(stagingPath, relativePath);
 
             if (targetPath !== root && !targetPath.startsWith(root + path.sep)) {
                 throw new Error(`Invalid ZIP entry (path traversal detected): ${entry.entryName}`);
@@ -139,7 +160,7 @@ function extractZip(app, gameId, zipPath) {
 
         if (commonParent) {
             // Strip the common parent directory — extract each entry
-            // relative to the install path, skipping the parent folder
+            // relative to the staging path, skipping the parent folder
             for (const entry of entries) {
                 if (entry.isDirectory) continue;
 
@@ -147,17 +168,32 @@ function extractZip(app, gameId, zipPath) {
                 const relativePath = entry.entryName.substring(commonParent.length + 1);
                 if (!relativePath) continue;
 
-                const targetPath = path.resolve(installPath, relativePath);
+                const targetPath = path.resolve(stagingPath, relativePath);
                 const targetDir = path.dirname(targetPath);
 
                 fs.mkdirSync(targetDir, { recursive: true });
                 fs.writeFileSync(targetPath, entry.getData());
             }
         } else {
-            // No common parent — extract directly to install path
-            zip.extractAllTo(installPath, true);
+            // No common parent — extract directly to staging path
+            zip.extractAllTo(stagingPath, true);
         }
+
+        // 2. Successful extraction — delete old game folder and rename staging folder
+        try {
+            fs.rmSync(installPath, { recursive: true, force: true });
+            fs.renameSync(stagingPath, installPath);
+        } catch (e) {
+            throw new Error(`Failed to swap staging folder with final installation folder: ${e.message}`);
+        }
+
     } catch (err) {
+        // 3. Extraction failed — clean up staging path and rethrow
+        try {
+            fs.rmSync(stagingPath, { recursive: true, force: true });
+        } catch (e) {
+            console.warn(`[Installer] Failed to clean up staging folder after error: ${e.message}`);
+        }
         throw new Error(`Failed to extract ZIP for ${gameId}: ${err.message}`);
     }
 
@@ -168,13 +204,19 @@ function extractZip(app, gameId, zipPath) {
 }
 
 /**
- * Clean up a temporary ZIP file after successful extraction.
+ * Clean up a temporary ZIP file.
+ *
+ * Safely no-ops if the file is already gone (e.g. cleaned up by the
+ * centralized download pipeline finally block), and only warns on
+ * genuine filesystem errors.
  *
  * @param {string} zipPath - Path to the temp ZIP file
  */
 function cleanupTempZip(zipPath) {
     try {
-        fs.unlinkSync(zipPath);
+        if (zipPath && fs.existsSync(zipPath)) {
+            fs.unlinkSync(zipPath);
+        }
     } catch (err) {
         console.warn(`Failed to clean up temp ZIP ${zipPath}: ${err.message}`);
     }
@@ -182,7 +224,10 @@ function cleanupTempZip(zipPath) {
 
 /**
  * Install a game from a downloaded ZIP file.
- * Creates the game directory, extracts the ZIP, and cleans up.
+ * Creates the game directory and extracts the ZIP.
+ *
+ * Temporary ZIP cleanup is handled centrally by the download pipeline
+ * (see src/downloader/manager.js runPipeline finally block).
  *
  * @param {Object} app - Electron app module
  * @param {string} gameId - Game identifier
@@ -190,9 +235,7 @@ function cleanupTempZip(zipPath) {
  * @returns {{ path: string, extractedAt: string }} Installation result
  */
 function installGame(app, gameId, zipPath) {
-    const result = extractZip(app, gameId, zipPath);
-    cleanupTempZip(zipPath);
-    return result;
+    return extractZip(app, gameId, zipPath);
 }
 
 module.exports = { getGamesDir, getGameInstallPath, ensureGameDir, extractZip, cleanupTempZip, installGame };

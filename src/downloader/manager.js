@@ -9,7 +9,7 @@
 
 const { download } = require('./downloader');
 const { verifyChecksum } = require('./verifier');
-const { installGame } = require('./installer');
+const { installGame, cleanupTempZip } = require('./installer');
 
 // ==========================================
 // STATE
@@ -132,79 +132,92 @@ async function runPipeline(app, gameId, metadata, signal, downloadId, onProgress
         throw new Error(`No download URL provided for ${gameId}`);
     }
 
-    // Phase 1: Download
-    if (onProgress) {
-        onProgress({ gameId, status: 'downloading', percentage: 0, downloadId });
-    }
-
-    const tempPath = await download({
-        url: downloadUrl,
-        gameId,
-        signal,
-        onProgress: (progress) => {
-            if (onProgress) {
-                onProgress({
-                    gameId,
-                    status: 'downloading',
-                    bytes: progress.bytes,
-                    total: progress.total,
-                    percentage: progress.percentage,
-                    downloadId
-                });
-            }
+    let tempPath = null;
+    try {
+        // Phase 1: Download
+        if (onProgress) {
+            onProgress({ gameId, status: 'downloading', percentage: 0, downloadId });
         }
-    });
 
-    // Check if cancelled during download
-    if (signal.aborted) {
-        throw new Error('Download cancelled');
-    }
-
-    // Phase 2: Verify
-    if (onProgress) {
-        onProgress({ gameId, status: 'verifying', percentage: 100, downloadId });
-    }
-
-    const expectedChecksum = metadata.download?.checksum || null;
-    const verification = await verifyChecksum(tempPath, expectedChecksum);
-
-    if (!verification.valid) {
-        // Clean up corrupted file
-        try { require('fs').unlinkSync(tempPath); } catch {}
-        throw new Error(`Checksum mismatch for ${gameId}: expected ${verification.expected}, got ${verification.actual}`);
-    }
-
-    // Check if cancelled during verification
-    if (signal.aborted) {
-        throw new Error('Download cancelled');
-    }
-
-    // Phase 3: Install
-    if (onProgress) {
-        onProgress({ gameId, status: 'installing', percentage: 100, downloadId });
-    }
-
-    const installResult = installGame(app, gameId, tempPath);
-
-    // Mark as complete
-    const entry = activeDownloads.get(downloadId);
-    if (entry) {
-        entry.state = 'completed';
-        activeDownloads.delete(downloadId);
-    }
-
-    if (onProgress) {
-        onProgress({
+        tempPath = await download({
+            url: downloadUrl,
             gameId,
-            status: 'completed',
-            percentage: 100,
-            path: installResult.path,
-            extractedAt: installResult.extractedAt,
-            downloadId
+            signal,
+            onProgress: (progress) => {
+                if (onProgress) {
+                    onProgress({
+                        gameId,
+                        status: 'downloading',
+                        bytes: progress.bytes,
+                        total: progress.total,
+                        percentage: progress.percentage,
+                        downloadId
+                    });
+                }
+            }
         });
-    }
 
-    return installResult;
+        // Check if cancelled during download
+        if (signal.aborted) {
+            throw new Error('Download cancelled');
+        }
+
+        // Phase 2: Verify
+        if (onProgress) {
+            onProgress({ gameId, status: 'verifying', percentage: 100, downloadId });
+        }
+
+        const expectedChecksum = metadata.download?.checksum || null;
+        const channel = metadata.channel || 'stable';
+        const verification = await verifyChecksum(tempPath, expectedChecksum, channel);
+
+        if (!verification.valid) {
+            if (verification.skipped) {
+                throw new Error(verification.error || `Checksum verification required for ${gameId} on the ${channel} channel but no checksum was provided`);
+            }
+            throw new Error(`Checksum mismatch for ${gameId}: expected ${verification.expected}, got ${verification.actual}`);
+        }
+
+        // Check if cancelled during verification
+        if (signal.aborted) {
+            throw new Error('Download cancelled');
+        }
+
+        // Phase 3: Install
+        if (onProgress) {
+            onProgress({ gameId, status: 'installing', percentage: 100, downloadId });
+        }
+
+        const installResult = installGame(app, gameId, tempPath);
+
+        // Mark as complete
+        const entry = activeDownloads.get(downloadId);
+        if (entry) {
+            entry.state = 'completed';
+            activeDownloads.delete(downloadId);
+        }
+
+        if (onProgress) {
+            onProgress({
+                gameId,
+                status: 'completed',
+                percentage: 100,
+                path: installResult.path,
+                extractedAt: installResult.extractedAt,
+                downloadId
+            });
+        }
+
+        return installResult;
+    } finally {
+        // Centralized temporary ZIP cleanup — runs on every pipeline
+        // outcome (success, checksum failure, extraction failure,
+        // cancellation, or unexpected exception). cleanupTempZip safely
+        // no-ops if the file no longer exists.
+        if (tempPath) {
+            cleanupTempZip(tempPath);
+        }
+    }
 }
 
 module.exports = { startDownload, cancelDownload, getDownloadStatus, getActiveDownloads };
