@@ -14,7 +14,8 @@
 // All games come from the registry and are installed through the downloader.
 // No bundled games are shipped with the launcher.
 
-import { loadRegistry, loadInstalledGames, gamesRegistry, registryMeta, installedGames, isGameInstalled, markAsInstalled, loadGameMetadata, getCachedGameMetadata } from './registry.js';
+import { loadRegistry, loadInstalledGames, gamesRegistry, registryMeta, installedGames, isGameInstalled, markAsInstalled, loadGameMetadata, getCachedGameMetadata, getInstalledVersion } from './registry.js';
+import { resolveMediaUrl, resolveMediaUrls } from '../utils.js';
 
 // ==========================================
 // DEFAULT GAME DATA
@@ -93,13 +94,15 @@ export async function loadGameManifests() {
                     description = metadata.description || description;
                     channels = metadata.channels || null;
 
-                    // Thumbnail may be an object { url, alt } in new format
+                    // Thumbnail may be an object { url, alt } in new format.
+                    // Relative URLs are resolved against the metadata file URL
+                    // so the thumbnail works regardless of registry host.
                     if (metadata.media?.thumbnail?.url) {
-                        thumbnail = metadata.media.thumbnail.url;
-                        banner = metadata.media.thumbnail.url;
+                        thumbnail = resolveMediaUrl(metadata.media.thumbnail.url, registry.metaUrl);
+                        banner = thumbnail;
                     } else if (metadata.media?.thumbnail) {
-                        thumbnail = metadata.media.thumbnail;
-                        banner = metadata.media.thumbnail;
+                        thumbnail = resolveMediaUrl(metadata.media.thumbnail, registry.metaUrl);
+                        banner = thumbnail;
                     }
 
                     // Use stable channel version if available
@@ -135,16 +138,11 @@ export async function loadGameManifests() {
                 metaUrl: registry.metaUrl
             };
 
-            // For registry-only games (not installed), resolve thumbnail as absolute URL
-            if (!game.path && game.thumbnail && !game.thumbnail.startsWith('http://') && !game.thumbnail.startsWith('https://') && registry.metaUrl) {
-                // The thumbnail is relative to the metadata file location, so resolve it
-                const metaBase = registry.metaUrl.substring(0, registry.metaUrl.lastIndexOf('/') + 1);
-                if (metaBase) {
-                    const absoluteCover = metaBase + game.thumbnail;
-                    game.cover = absoluteCover;
-                    game.banner = absoluteCover;
-                    game.thumbnail = absoluteCover;
-                }
+            // Resolve all URLs in the media object so they work for any future
+            // media asset (screenshots, backgrounds, etc.), not just thumbnails.
+            if (metadata?.media && registry.metaUrl) {
+                const resolvedMedia = resolveMediaUrls(metadata.media, registry.metaUrl);
+                game.media = resolvedMedia;
             }
 
             // Merge any extra metadata fields not already set
@@ -219,6 +217,8 @@ export async function getGameWithPlayData(game, Storage) {
         resolvedPath += '/';
     }
 
+    const installedVersion = getInstalledVersion(game.id);
+
     return {
         ...game,
         lastPlayed: pd.lastPlayed || null,
@@ -229,7 +229,9 @@ export async function getGameWithPlayData(game, Storage) {
         installed: isInstalled,
         path: resolvedPath || game.path,
         installPath: installData?.path || installData?.installPath || null,
-        installedAt: installData?.installedAt || null
+        installedAt: installData?.installedAt || null,
+        installedVersion: installedVersion,
+        updateAvailable: isInstalled && installedVersion && channelVersion && installedVersion !== channelVersion
     };
 }
 

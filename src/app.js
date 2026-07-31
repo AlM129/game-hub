@@ -218,6 +218,9 @@ async function renderHome() {
                 const installedIndicator = game.installed
                     ? '<span class="installed-badge" style="font-size:8px;padding:0 0.375rem;">✓</span>'
                     : '';
+                const updateIndicator = game.updateAvailable
+                    ? '<span class="text-amber-500" style="font-size:10px;font-weight:700;">⬆</span>'
+                    : '';
                 const card = document.createElement('div');
                 card.className = `bg-gray-800 rounded-xl overflow-hidden border border-gray-700 game-card cursor-pointer group flex gap-4 p-4 card-animate ${game.theme.borderHover}`;
                 card.style.animationDelay = `${index * 80}ms`;
@@ -228,7 +231,7 @@ async function renderHome() {
                         <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover z-10" onerror="this.style.opacity='0';">
                     </div>
                     <div class="flex flex-col justify-center min-w-0">
-                        <h4 class="text-white font-bold text-sm truncate flex items-center gap-1.5">${installedIndicator} ${game.title}</h4>
+                        <h4 class="text-white font-bold text-sm truncate flex items-center gap-1.5">${installedIndicator} ${updateIndicator} ${game.title}</h4>
                         <p class="text-gray-500 text-xs mt-0.5">${formatLastPlayed(game.lastPlayed)}</p>
                         <p class="text-gray-600 text-[11px] mt-0.5">${game.playCount} session${game.playCount !== 1 ? 's' : ''}</p>
                     </div>
@@ -259,68 +262,113 @@ async function renderHome() {
     }
 }
 
+// ==========================================
+// RENDER MUTEX
+// ==========================================
+// Serializes concurrent renderLibrary() calls so that only one render
+// executes at a time. If a render is requested while another is in
+// progress, the request is queued with the latest filter term. When the
+// current render finishes, the queued request runs with the most recent
+// state — ensuring no duplicate DOM cards and no dropped updates.
+//
+// This is necessary because updateGameUI() is called without await from
+// download progress callbacks, which can fire multiple concurrent
+// renderLibrary() calls that would otherwise race and produce duplicates.
+
+let _renderInProgress = false;
+let _pendingRender = false;
+let _pendingFilterTerm = '';
+
 async function renderLibrary(filterTerm = '') {
-    const grid = document.getElementById('gamesGrid');
-    const noResults = document.getElementById('noResults');
-    if (!grid || !noResults) return;
-    
-    grid.innerHTML = '';
-
-    const allWithData = await getAllGamesWithPlayData(Storage);
-
-    // Apply installation filter first
-    let filtered = allWithData;
-    if (currentLibraryFilter === 'installed') {
-        filtered = filtered.filter(g => g.installed);
-    } else if (currentLibraryFilter === 'not_installed') {
-        filtered = filtered.filter(g => !g.installed);
-    }
-
-    // Then apply search term filter
-    if (filterTerm) {
-        filtered = filtered.filter(g => g.title.toLowerCase().includes(filterTerm.toLowerCase()));
-    }
-
-    if (filtered.length === 0) {
-        noResults.classList.remove('hidden');
+    // If a render is already in flight, queue the latest request.
+    // The _pendingFilterTerm is overwritten so only the most recent
+    // filter term is retained — stale intermediate renders collapse.
+    if (_renderInProgress) {
+        _pendingRender = true;
+        _pendingFilterTerm = filterTerm;
         return;
     }
-    noResults.classList.add('hidden');
 
-    filtered.forEach((game, index) => {
-        const favBadge = game.favorite ? '<span class="text-yellow-400 text-xs">⭐</span>' : '';
-        const installedBadge = game.installed
-            ? '<span class="installed-badge">✓ Installed</span>'
-            : '<span class="not-installed-badge">Not Installed</span>';
-        const card = document.createElement('div');
-        card.className = `bg-gray-800 rounded-2xl overflow-hidden shadow-lg border border-gray-700 game-card ${game.theme.borderHover} group flex flex-col cursor-pointer card-animate`;
-        card.style.animationDelay = `${index * 60}ms`;
-        card.onclick = () => showDetails(game.id);
+    _renderInProgress = true;
+    _pendingRender = false;
 
-        card.innerHTML = `
-            <div class="w-full h-48 ${game.theme.bg} relative overflow-hidden flex items-center justify-center">
-                <span class="absolute ${game.theme.text} font-bold tracking-wider text-lg uppercase select-none text-center px-4 z-0">${game.title}</span>
-                <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 z-10" onerror="this.style.opacity='0';">
-            </div>
-            <div class="p-5 flex flex-col flex-grow justify-between">
-                <div>
-                    <div class="flex items-center justify-between mb-1.5">
-                        <h2 class="text-xl font-bold text-white flex items-center gap-1.5">${favBadge} ${game.title}</h2>
-                        <div class="flex items-center gap-2">
-                            ${installedBadge}
-                            <span class="text-[11px] text-gray-500 font-medium bg-gray-700/50 px-2 py-0.5 rounded">${game.genre}</span>
+    try {
+        const grid = document.getElementById('gamesGrid');
+        const noResults = document.getElementById('noResults');
+        if (!grid || !noResults) return;
+
+        grid.innerHTML = '';
+
+        const allWithData = await getAllGamesWithPlayData(Storage);
+
+        // Apply installation filter first
+        let filtered = allWithData;
+        if (currentLibraryFilter === 'installed') {
+            filtered = filtered.filter(g => g.installed);
+        } else if (currentLibraryFilter === 'not_installed') {
+            filtered = filtered.filter(g => !g.installed);
+        }
+
+        // Then apply search term filter
+        if (filterTerm) {
+            filtered = filtered.filter(g => g.title.toLowerCase().includes(filterTerm.toLowerCase()));
+        }
+
+        if (filtered.length === 0) {
+            noResults.classList.remove('hidden');
+            return;
+        }
+        noResults.classList.add('hidden');
+
+        filtered.forEach((game, index) => {
+            const favBadge = game.favorite ? '<span class="text-yellow-400 text-xs">⭐</span>' : '';
+            const updateBadge = game.updateAvailable
+                ? '<span class="update-badge">⬆ Update Available</span>'
+                : '';
+            const installedBadge = game.installed
+                ? '<span class="installed-badge">✓ Installed</span>'
+                : '<span class="not-installed-badge">Not Installed</span>';
+            const card = document.createElement('div');
+            card.className = `bg-gray-800 rounded-2xl overflow-hidden shadow-lg border border-gray-700 game-card ${game.theme.borderHover} group flex flex-col cursor-pointer card-animate`;
+            card.style.animationDelay = `${index * 60}ms`;
+            card.onclick = () => showDetails(game.id);
+
+            card.innerHTML = `
+                <div class="w-full h-48 ${game.theme.bg} relative overflow-hidden flex items-center justify-center">
+                    <span class="absolute ${game.theme.text} font-bold tracking-wider text-lg uppercase select-none text-center px-4 z-0">${game.title}</span>
+                    <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 z-10" onerror="this.style.opacity='0';">
+                </div>
+                <div class="p-5 flex flex-col flex-grow justify-between">
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5">
+                            <h2 class="text-xl font-bold text-white flex items-center gap-1.5">${favBadge} ${game.title}</h2>
+                            <div class="flex items-center gap-2">
+                                ${installedBadge}
+                                ${updateBadge}
+                                <span class="text-[11px] text-gray-500 font-medium bg-gray-700/50 px-2 py-0.5 rounded">${game.genre}</span>
+                            </div>
                         </div>
+                        <p class="text-gray-400 text-xs leading-relaxed mb-5 line-clamp-2">${game.description}</p>
                     </div>
-                    <p class="text-gray-400 text-xs leading-relaxed mb-5 line-clamp-2">${game.description}</p>
+                    <div class="mt-auto ${game.theme.linkText} ${game.theme.linkHover} text-sm font-bold flex items-center gap-1 transition-colors">
+                        View Details
+                        <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                    </div>
                 </div>
-                <div class="mt-auto ${game.theme.linkText} ${game.theme.linkHover} text-sm font-bold flex items-center gap-1 transition-colors">
-                    View Details
-                    <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
-                </div>
-            </div>
-        `;
-        grid.appendChild(card);
-    });
+            `;
+            grid.appendChild(card);
+        });
+    } finally {
+        _renderInProgress = false;
+
+        // If a render was queued while we were busy, run it now with the
+        // latest filter term. This ensures the UI always reflects the most
+        // recent state without dropping legitimate updates.
+        if (_pendingRender) {
+            _pendingRender = false;
+            await renderLibrary(_pendingFilterTerm);
+        }
+    }
 }
 
 /**
@@ -626,10 +674,8 @@ function getGameActionState(game) {
         return 'install';
     }
 
-    // Check for update availability
-    const activeChannel = game.activeChannel || 'stable';
-    const channelData = game.channels?.[activeChannel];
-    if (channelData?.version && channelData.version !== game.channelVersion) {
+    // Update available (derived in loader.js getGameWithPlayData)
+    if (game.updateAvailable) {
         return 'update';
     }
 
@@ -792,6 +838,16 @@ function updateDetailsSidebar(game) {
 
     const installedDate = game.installedAt ? formatDate(game.installedAt) : '—';
 
+    const installedVersion = game.installed ? (game.installedVersion || '—') : '—';
+    const availableVersion = game.installed ? (game.channelVersion || game.version || '—') : '—';
+
+    const updateStatusRow = game.updateAvailable
+        ? `<div class="details-info-row">
+                <span class="details-info-label">Update Available</span>
+                <span class="details-info-value text-amber-500">Yes</span>
+            </div>`
+        : '';
+
     sidebar.innerHTML = `
         <div>
             <div class="details-section-title">Installation</div>
@@ -808,6 +864,15 @@ function updateDetailsSidebar(game) {
                     <span class="details-info-label">Installed</span>
                     <span class="details-info-value">${installedDate}</span>
                 </div>
+                <div class="details-info-row">
+                    <span class="details-info-label">Installed Version</span>
+                    <span class="details-info-value">${installedVersion}</span>
+                </div>
+                <div class="details-info-row">
+                    <span class="details-info-label">Available Version</span>
+                    <span class="details-info-value">${availableVersion}</span>
+                </div>
+                ${updateStatusRow}
             </div>
         </div>
     `;

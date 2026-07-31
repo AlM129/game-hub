@@ -15,7 +15,7 @@ import {
     getActiveChannel, 
     CHANNEL_CONFIG 
 } from '../../games/registry.js';
-import { formatDate, formatLastPlayed, getChannelBadge } from '../../utils.js';
+import { formatDate, formatLastPlayed, getChannelBadge, resolveCoverUrl } from '../../utils.js';
 
 export async function renderHome() {
     await renderFeaturedBanner();
@@ -38,7 +38,7 @@ async function renderFeaturedBanner() {
 
     container.innerHTML = `
         <div class="relative h-56 md:h-72 ${featured.theme.bg}">
-            <img src="${featured.path + featured.cover}" alt="${featured.title}" class="featured-img absolute inset-0 w-full h-full object-cover opacity-60">
+            <img src="${resolveCoverUrl(featured)}" alt="${featured.title}" class="featured-img absolute inset-0 w-full h-full object-cover opacity-60">
             <div class="absolute inset-0 bg-gradient-to-r from-gray-900 via-gray-900/70 to-transparent z-10"></div>
             <div class="absolute inset-0 bg-gradient-to-t from-gray-900/80 to-transparent z-10"></div>
             <div class="relative z-20 h-full flex flex-col justify-end p-8">
@@ -80,7 +80,7 @@ async function renderRecentlyPlayed() {
         card.innerHTML = `
             <div class="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 ${game.theme.bg} relative flex items-center justify-center">
                 <span class="absolute ${game.theme.text} font-bold text-[10px] uppercase select-none z-0">${game.title.substring(0, 2)}</span>
-                <img src="${game.path + game.cover}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover z-10" onerror="this.style.opacity='0';">
+                <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover z-10" onerror="this.style.opacity='0';">
             </div>
             <div class="flex flex-col justify-center min-w-0">
                 <h4 class="text-white font-bold text-sm truncate">${game.title}</h4>
@@ -115,7 +115,7 @@ async function renderHomeFavorites() {
         card.innerHTML = `
             <div class="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0 ${game.theme.bg} relative flex items-center justify-center">
                 <span class="absolute ${game.theme.text} font-bold text-[10px] uppercase select-none z-0">${game.title.substring(0, 2)}</span>
-                <img src="${game.path + game.cover}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover z-10" onerror="this.style.opacity='0';">
+                <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover z-10" onerror="this.style.opacity='0';">
             </div>
             <div class="flex flex-col justify-center min-w-0">
                 <h4 class="text-white font-bold text-sm truncate">⭐ ${game.title}</h4>

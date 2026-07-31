@@ -4,6 +4,7 @@
 // Handles play statistics calculation and rendering
 
 import { Storage } from '../../storage.js';
+import { resolveCoverUrl } from '../../utils.js';
 
 // ==========================================
 // CALCULATION HELPERS
@@ -103,7 +104,7 @@ export async function renderStatistics() {
 
         card.innerHTML = `
             <div class="flex items-center gap-4">
-                <img src="${game.path + game.cover}" alt="${game.title}" class="w-14 h-14 rounded-lg object-cover shadow border border-gray-700">
+                <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="w-14 h-14 rounded-lg object-cover shadow border border-gray-700">
                 <h4 class="text-lg font-bold text-white">${game.title}</h4>
             </div>
             ${statsHtml}

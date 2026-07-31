@@ -116,12 +116,30 @@ function extractZip(app, gameId, zipPath) {
         console.log(`[Installer]   Valid ZIP signature: ${isValidZip}`);
 
         const zip = new AdmZip(zipPath);
+        const entries = zip.getEntries();
+        const root = path.resolve(installPath);
         const commonParent = detectCommonParent(zip);
+
+        // Pre-validate all ZIP entries to prevent path traversal (Zip Slip)
+        for (const entry of entries) {
+            if (entry.isDirectory) continue;
+
+            const relativePath = commonParent
+                ? entry.entryName.substring(commonParent.length + 1)
+                : entry.entryName;
+
+            if (!relativePath) continue;
+
+            const targetPath = path.resolve(installPath, relativePath);
+
+            if (targetPath !== root && !targetPath.startsWith(root + path.sep)) {
+                throw new Error(`Invalid ZIP entry (path traversal detected): ${entry.entryName}`);
+            }
+        }
 
         if (commonParent) {
             // Strip the common parent directory — extract each entry
             // relative to the install path, skipping the parent folder
-            const entries = zip.getEntries();
             for (const entry of entries) {
                 if (entry.isDirectory) continue;
 
@@ -129,7 +147,7 @@ function extractZip(app, gameId, zipPath) {
                 const relativePath = entry.entryName.substring(commonParent.length + 1);
                 if (!relativePath) continue;
 
-                const targetPath = path.join(installPath, relativePath);
+                const targetPath = path.resolve(installPath, relativePath);
                 const targetDir = path.dirname(targetPath);
 
                 fs.mkdirSync(targetDir, { recursive: true });

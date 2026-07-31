@@ -434,6 +434,11 @@ export async function loadGameMetadata(gameId) {
         metaUrl = base + metaUrl;
     }
 
+    // Store the resolved absolute URL on the entry so it can be used
+    // as the base for resolving relative media URLs (e.g., cover.png
+    // resolves against the metadata file's URL, not the registry root).
+    entry.metaUrl = metaUrl;
+
     try {
         console.log(`GameHub: Loading metadata for ${gameId} from ${metaUrl}`);
         const response = await fetch(metaUrl);

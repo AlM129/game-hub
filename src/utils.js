@@ -38,6 +38,79 @@ export function getRarityBg(rarity, RARITY_CONFIG) {
 }
 
 /**
+ * Resolve a media URL relative to a metadata file URL.
+ *
+ * Absolute URLs (http://, https://, file://) are returned as-is.
+ * Relative URLs are resolved against the metadata file's URL using
+ * JavaScript's built-in URL constructor, so they work regardless of
+ * where the registry is hosted.
+ *
+ * @param {string} mediaUrl - The media URL to resolve (relative or absolute)
+ * @param {string} metadataUrl - The URL of the metadata file that contained the mediaUrl
+ * @returns {string} The resolved absolute URL
+ */
+export function resolveMediaUrl(mediaUrl, metadataUrl) {
+    if (!mediaUrl) return '';
+    // Absolute URLs are returned as-is
+    if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://') || mediaUrl.startsWith('file://')) {
+        return mediaUrl;
+    }
+    // Relative URL — resolve against the metadata URL using the built-in URL constructor
+    if (metadataUrl) {
+        try {
+            return new URL(mediaUrl, metadataUrl).href;
+        } catch (e) {
+            console.warn(`GameHub: Failed to resolve media URL "${mediaUrl}" against "${metadataUrl}":`, e.message);
+            return mediaUrl;
+        }
+    }
+    return mediaUrl;
+}
+
+/**
+ * Recursively resolve all URL fields in a media object against a metadata URL.
+ *
+ * Handles structures like:
+ *   { thumbnail: { url: "cover.png" } }
+ *   { screenshots: [{ url: "screenshots/1.png" }, { url: "screenshots/2.png" }] }
+ *   { background: { url: "bg.png" } }
+ *
+ * Absolute URLs are left unchanged. Relative URLs are resolved using
+ * JavaScript's built-in URL constructor.
+ *
+ * @param {Object} media - The media object from game metadata
+ * @param {string} metadataUrl - The URL of the metadata file
+ * @returns {Object} A new media object with all URLs resolved
+ */
+export function resolveMediaUrls(media, metadataUrl) {
+    if (!media || !metadataUrl) return media;
+    
+    const resolved = Array.isArray(media) ? [] : {};
+    for (const [key, value] of Object.entries(media)) {
+        if (value && typeof value === 'object') {
+            if (value.url) {
+                // Object with a url property: { url: "...", ... }
+                resolved[key] = { ...value, url: resolveMediaUrl(value.url, metadataUrl) };
+            } else if (Array.isArray(value)) {
+                // Array of objects: may contain objects with url fields
+                resolved[key] = value.map(item => {
+                    if (item && typeof item === 'object' && item.url) {
+                        return { ...item, url: resolveMediaUrl(item.url, metadataUrl) };
+                    }
+                    return item;
+                });
+            } else {
+                // Nested object without direct url — recurse
+                resolved[key] = resolveMediaUrls(value, metadataUrl);
+            }
+        } else {
+            resolved[key] = value;
+        }
+    }
+    return resolved;
+}
+
+/**
  * Convert an absolute filesystem path to a file:// URL if needed.
  * Relative paths are returned as-is (they resolve against the page origin
  * in Electron's file:// environment).
@@ -61,23 +134,62 @@ function toFileUrlIfNeeded(fullPath) {
 }
 
 /**
- * Resolve a game's cover image URL.
+ * Default placeholder cover image used when no cover is available from
+ * any source. Uses a self-contained SVG data URI to avoid external
+ * file dependencies.
+ */
+const PLACEHOLDER_COVER = 'data:image/svg+xml,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">' +
+    '<rect fill="#374151" width="400" height="300"/>' +
+    '<rect fill="none" stroke="#6B7280" stroke-width="2" x="140" y="100" width="120" height="100" rx="8"/>' +
+    '<circle fill="#6B7280" cx="200" cy="150" r="12"/>' +
+    '<rect fill="#6B7280" x="195" y="130" width="10" height="40" rx="2"/>' +
+    '<text fill="#9CA3AF" font-family="sans-serif" font-size="13" text-anchor="middle" x="200" y="240">No Cover Available</text>' +
+    '</svg>'
+);
+
+/**
+ * Resolve a game's cover image URL with priority-based resolution.
  *
- * - HTTP(S) URLs are returned as-is (remote registry thumbnails).
- * - Absolute filesystem paths (downloaded games) are converted to
- *   properly-encoded file:// URLs so covers load correctly even when
- *   the install path contains spaces (e.g. "Application Support").
+ * Priority order:
+ *   1. Installed game with local cover.png:
+ *      Constructs a file:// URL pointing to cover.png in the game's
+ *      install directory (e.g., file:///Users/.../games/sky-ace/cover.png).
+ *      The HTML onerror handler hides broken images if the file doesn't exist.
  *
- * @param {Object} game - Game object with path and cover properties
+ *   2. Registry-resolved cover URL:
+ *      - HTTP(S) URLs are returned as-is (remote registry thumbnails).
+ *      - Relative paths are converted to properly-encoded file:// URLs
+ *        using the game's install path.
+ *
+ *   3. Default placeholder:
+ *      A self-contained SVG data URI is returned when no cover source
+ *      is available.
+ *
+ * @param {Object} game - Game object with path, cover, and installed properties
  * @returns {string} Resolved cover URL
  */
 export function resolveCoverUrl(game) {
-    if (!game) return '';
-    if (!game.cover) return '';
-    if (game.cover.startsWith('http://') || game.cover.startsWith('https://')) {
-        return game.cover;
+    if (!game) return PLACEHOLDER_COVER;
+
+    // Priority 1: Installed game — use local cover.png from the game directory
+    if (game.installed && game.path) {
+        const normalizedPath = game.path.endsWith('/') ? game.path : game.path + '/';
+        return toFileUrlIfNeeded(normalizedPath + 'cover.png');
     }
-    return toFileUrlIfNeeded((game.path || '') + game.cover);
+
+    // Priority 2: Registry-resolved cover URL (remote thumbnail or relative asset)
+    if (game.cover) {
+        // Absolute remote URLs are returned as-is
+        if (game.cover.startsWith('http://') || game.cover.startsWith('https://')) {
+            return game.cover;
+        }
+        // Relative paths are resolved against the game path
+        return toFileUrlIfNeeded((game.path || '') + game.cover);
+    }
+
+    // Priority 3: Default placeholder when no cover source exists
+    return PLACEHOLDER_COVER;
 }
 
 /**

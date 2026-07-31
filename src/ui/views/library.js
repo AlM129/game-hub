@@ -5,6 +5,7 @@
 
 import { Storage } from '../../storage.js';
 import { getAllGamesWithPlayData } from '../../games/loader.js';
+import { resolveCoverUrl } from '../../utils.js';
 
 export async function renderLibrary(filterTerm = '') {
     const grid = document.getElementById('gamesGrid');
@@ -37,7 +38,7 @@ export async function renderLibrary(filterTerm = '') {
         card.innerHTML = `
             <div class="w-full h-48 ${game.theme.bg} relative overflow-hidden flex items-center justify-center">
                 <span class="absolute ${game.theme.text} font-bold tracking-wider text-lg uppercase select-none text-center px-4 z-0">${game.title}</span>
-                <img src="${game.path + game.cover}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 z-10" onerror="this.style.opacity='0';">
+                <img src="${resolveCoverUrl(game)}" alt="${game.title}" class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300 z-10" onerror="this.style.opacity='0';">
             </div>
             <div class="p-5 flex flex-col flex-grow justify-between">
                 <div>
