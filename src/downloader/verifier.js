@@ -75,7 +75,13 @@ async function verifyChecksum(filePath, expectedChecksum, channel = 'stable') {
     }
 
     const actual = await calculateChecksum(filePath);
-    const expected = expectedChecksum.toLowerCase();
+
+    // Support both legacy string checksums and the new object format.
+    const expected =
+        typeof expectedChecksum === 'string'
+            ? expectedChecksum.toLowerCase()
+            : expectedChecksum.hash.toLowerCase();
+
     const valid = actual === expected;
 
     if (!valid) {

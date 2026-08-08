@@ -5,7 +5,7 @@
 // Handles game_started, game_closed, and achievement_unlock events
 
 import { Storage } from '../storage.js';
-import { getAchievementDefinitions, addGameAchievements, achievements } from '../systems/achievements/manager.js';
+import { getAchievementDefinitions, addGameAchievements, achievements, isAchievementsEnabled } from '../systems/achievements/manager.js';
 
 // ==========================================
 // EVENT SCHEMA
@@ -74,7 +74,12 @@ export async function processAchievementUnlock(event) {
     const { gameId, data } = event;
     const { achievementId } = data;
     
-    // Ensure the achievement is registered (games may self-register at runtime)
+    // If achievements are disabled for this game, safely ignore the event
+    if (!isAchievementsEnabled(gameId)) {
+        return false;
+    }
+    
+    // Ensure the achievement is registered in the definitions
     if (!achievements[gameId] || !achievements[gameId][achievementId]) {
         console.warn(`GameHub: unknown achievement "${achievementId}" for game "${gameId}"`);
         return false;

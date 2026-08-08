@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('downloader', {
     install: (downloadId) => ipcRenderer.invoke('download:install', downloadId),
     status: (downloadId) => ipcRenderer.invoke('download:status', downloadId),
     list: () => ipcRenderer.invoke('download:list'),
+    uninstall: (gameId, options) => ipcRenderer.invoke('game:uninstall', gameId, options),
     onProgress: (callback) => {
         const handler = (event, data) => callback(data);
         ipcRenderer.on('download:progress', handler);

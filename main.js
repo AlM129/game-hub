@@ -10,6 +10,9 @@ const {
     getActiveDownloads
 } = require('./src/downloader/manager');
 
+// Save-data cleanup + uninstall orchestration
+const { uninstallGameWithSaveHandling } = require('./src/downloader/saveCleanup');
+
 const SCHEMA_VERSION = 2;
 const DEFAULT_PROFILE_ID = 'default';
 const DEFAULT_PROFILE_NAME = 'Default';
@@ -529,6 +532,22 @@ app.whenReady().then(() => {
 
     ipcMain.handle('download:list', () => {
         return getActiveDownloads();
+    });
+
+    // ==========================================
+    // Uninstall IPC Handlers
+    // ==========================================
+
+    ipcMain.handle('game:uninstall', (event, gameId, options) => {
+        // Orchestrates optional save-data deletion (via the game's own
+        // clearSaveData API) BEFORE filesystem/registry uninstall, and reports
+        // truthful success/failure for each step.
+        return uninstallGameWithSaveHandling({
+            app,
+            gameId,
+            options: options || {},
+            store
+        });
     });
 
     // ==========================================

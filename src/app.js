@@ -5,10 +5,11 @@
 
 import { Storage } from './storage.js';
 import { getGames, loadGameManifests, getAllGamesWithPlayData, getRecentlyPlayed, getGameWithPlayData, markUpdatesAsSeen, getChannelChangelog, getFeaturedGameId, refreshInstalledGames } from './games/loader.js';
-import { initialize as initAchievements, achievements, getAchievementDefinitions, addGameAchievements, RARITY_CONFIG } from './systems/achievements/manager.js';
+import { initialize as initAchievements, achievements, getAchievementDefinitions, addGameAchievements, isAchievementsEnabled, RARITY_CONFIG } from './systems/achievements/manager.js';
 import { navigateTo, getCurrentView as getRouterCurrentView } from './core/router.js';
 import { GameHub } from './core/events.js';
 import { formatDate, formatLastPlayed, getChannelBadge, getRarityBadge, getRarityBg, resolveCoverUrl, resolveGameUrl } from './utils.js';
+import { showError, showSuccess } from './ui/components/notification.js';
 import { CHANNEL_CONFIG } from './games/registry.js';
 
 // Re-export games for backward compatibility
@@ -756,6 +757,14 @@ async function updateDetailsActions(game) {
                 `;
             }
         });
+
+        // Add uninstall button for installed games
+        html += `
+            <button onclick="openUninstallModal('${game.id}')" class="btn-action btn-danger">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                Uninstall
+            </button>
+        `;
     }
 
     // Always add favorite button
@@ -779,6 +788,18 @@ async function updateDetailsActions(game) {
 async function buildDetailsAchievements(gameId) {
     const container = document.getElementById('detailsAchievements');
     if (!container) return;
+
+    const header = container.previousElementSibling;
+
+    if (!isAchievementsEnabled(gameId)) {
+        if (header && header.tagName === 'H3') header.style.display = 'none';
+        container.style.display = 'none';
+        container.innerHTML = '';
+        return;
+    }
+
+    if (header && header.tagName === 'H3') header.style.display = '';
+    container.style.display = '';
 
     const defs = getAchievementDefinitions(gameId);
     const unlockedData = await Storage.getAchievements(gameId);
@@ -1277,6 +1298,83 @@ async function confirmResetData() {
 }
 
 // ==========================================
+// UNINSTALL
+// ==========================================
+
+let uninstallModalGameId = null;
+
+/**
+ * Open the uninstall confirmation modal for a game.
+ * @param {string} gameId - Game identifier
+ */
+function openUninstallModal(gameId) {
+    const gameDef = games.find(g => g.id === gameId);
+    if (!gameDef) return;
+
+    uninstallModalGameId = gameId;
+
+    // Set the modal title with the game name
+    const titleEl = document.getElementById('uninstallModalTitle');
+    if (titleEl) {
+        titleEl.textContent = `Uninstall ${gameDef.title}?`;
+    }
+
+    // Reset the checkbox to unchecked by default
+    const checkbox = document.getElementById('uninstallDeleteSavesCheckbox');
+    if (checkbox) {
+        checkbox.checked = false;
+    }
+
+    openModal('uninstallModal');
+}
+
+/**
+ * Close the uninstall confirmation modal.
+ */
+function closeUninstallModal() {
+    uninstallModalGameId = null;
+    closeModal('uninstallModal');
+}
+
+/**
+ * Confirm and execute the uninstall.
+ * Refreshes installed games and updates the UI after success.
+ */
+async function confirmUninstall() {
+    if (!uninstallModalGameId) return;
+
+    const gameId = uninstallModalGameId;
+    const checkbox = document.getElementById('uninstallDeleteSavesCheckbox');
+    const deleteSaves = !!(checkbox && checkbox.checked);
+
+    closeUninstallModal();
+
+    try {
+        const result = await window.downloader.uninstall(gameId, { deleteSaves });
+
+        // The launcher reports truthful per-step results. If save deletion was
+        // requested but failed, the game is intentionally NOT uninstalled and
+        // we must not refresh the UI as if it were.
+        if (!result || result.success === false) {
+            const detail = (result && result.error) ? result.error : 'Unknown error';
+            console.error(`GameHub: Failed to uninstall ${gameId}:`, detail);
+            showError(`Could not uninstall ${gameId}: ${detail}`, 6000);
+            return;
+        }
+
+        // Refresh installed games cache and update all UI views
+        await refreshInstalledGames();
+        await updateGameUI(gameId);
+        showSuccess(deleteSaves
+            ? `${gameId} uninstalled (save data deleted)`
+            : `${gameId} uninstalled (save data preserved)`);
+    } catch (e) {
+        console.error(`GameHub: Failed to uninstall ${gameId}:`, e);
+        showError(`Failed to uninstall ${gameId}.`, 6000);
+    }
+}
+
+// ==========================================
 // STATISTICS
 // ==========================================
 
@@ -1749,3 +1847,8 @@ window.closeDownloadModal = closeDownloadModal;
 window.cancelDownloadFromModal = cancelDownloadFromModal;
 window.retryDownload = retryDownload;
 window.launchDownloadedGame = launchDownloadedGame;
+
+// Uninstall modal functions
+window.openUninstallModal = openUninstallModal;
+window.closeUninstallModal = closeUninstallModal;
+window.confirmUninstall = confirmUninstall;

@@ -16,6 +16,7 @@
 
 import { loadRegistry, loadInstalledGames, gamesRegistry, registryMeta, installedGames, isGameInstalled, markAsInstalled, loadGameMetadata, getCachedGameMetadata, getInstalledVersion } from './registry.js';
 import { resolveMediaUrl, resolveMediaUrls } from '../utils.js';
+import { addGameAchievements, setAchievementsEnabled } from '../systems/achievements/manager.js';
 
 // ==========================================
 // DEFAULT GAME DATA
@@ -154,6 +155,21 @@ export async function loadGameManifests() {
                 });
             }
 
+            // Step C: Process achievements opt-in/opt-out and registration
+            const achievementsEnabled = !!metadata?.achievementsEnabled;
+            game.achievementsEnabled = achievementsEnabled;
+
+            if (achievementsEnabled) {
+                const achDefs = await loadGameAchievements(metadata, registry, installPath);
+                if (achDefs && Object.keys(achDefs).length > 0) {
+                    addGameAchievements(registry.id, achDefs);
+                } else {
+                    console.warn(`GameHub: Achievements enabled for "${registry.id}" but no definitions were loaded`);
+                }
+            } else {
+                setAchievementsEnabled(registry.id, false);
+            }
+
             loadedGames.push(game);
         } catch (error) {
             console.warn(`GameHub: Error loading game data for ${registry.id}:`, error);
@@ -164,6 +180,54 @@ export async function loadGameManifests() {
     _games.length = 0;
     _games.push(...loadedGames);
     return loadedGames;
+}
+
+/**
+ * Load achievement definitions for a game dynamically from embedded metadata or external file.
+ */
+async function loadGameAchievements(metadata, registry, installPath) {
+    if (!metadata || !metadata.achievementsEnabled) {
+        return null;
+    }
+
+    // Direct object definition embedded in manifest
+    if (metadata.achievements && typeof metadata.achievements === 'object') {
+        return metadata.achievements;
+    }
+
+    // File reference specified via achievementsFile or string achievements field
+    const fileRef = metadata.achievementsFile || (typeof metadata.achievements === 'string' ? metadata.achievements : null);
+    if (!fileRef) {
+        return null;
+    }
+
+    const urlsToTry = [];
+    if (registry.metaUrl) {
+        urlsToTry.push(resolveMediaUrl(fileRef, registry.metaUrl));
+    }
+    if (installPath) {
+        const normPath = installPath.endsWith('/') ? installPath : installPath + '/';
+        const fileUrl = normPath + fileRef;
+        if (!urlsToTry.includes(fileUrl)) {
+            urlsToTry.push(fileUrl);
+        }
+    }
+
+    for (const url of urlsToTry) {
+        try {
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                if (data && typeof data === 'object') {
+                    return data;
+                }
+            }
+        } catch (e) {
+            // Ignore fetch errors to allow fallback attempt
+        }
+    }
+
+    return null;
 }
 
 // ==========================================

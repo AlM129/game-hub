@@ -2,7 +2,7 @@
 // ACHIEVEMENTS MANAGER
 // ==========================================
 // Centralized achievement database and management
-// Game-specific achievements can be added under their respective game IDs
+// Game-specific achievements are registered dynamically at runtime
 // Launcher-wide achievements use "gamehub" as the ID
 
 // ==========================================
@@ -18,9 +18,26 @@ export const RARITY_CONFIG = {
     gold:       { label: "Gold",      color: "text-yellow-400", bg: "bg-yellow-900/30" }
 };
 
+// Set of game IDs that have opted into achievements
+const enabledGames = new Set(['gamehub']);
+
+export function setAchievementsEnabled(gameId, enabled) {
+    if (enabled) {
+        enabledGames.add(gameId);
+    } else {
+        enabledGames.delete(gameId);
+    }
+}
+
+export function isAchievementsEnabled(gameId) {
+    return enabledGames.has(gameId);
+}
+
 // ==========================================
 // ACHIEVEMENT DEFINITIONS
 // ==========================================
+// Launcher-owned achievements are hardcoded here.
+// Game-owned achievements are loaded dynamically via addGameAchievements().
 
 export const achievements = {
     gamehub: {
@@ -56,390 +73,6 @@ export const achievements = {
             icon: "🔥",
             rarity: "rare"
         }
-    },
-    tactical_drone_defense: {
-        wave_master: {
-            id: "wave_master",
-            gameId: "tactical_drone_defense",
-            title: "Wave Master",
-            description: "Survive wave 25",
-            icon: "🏆",
-            rarity: "gold"
-        },
-        first_scrap: {
-            id: "first_scrap",
-            gameId: "tactical_drone_defense",
-            title: "First Scrap",
-            description: "Complete your first wave",
-            icon: "🔧",
-            rarity: "common"
-        },
-        overcharged: {
-            id: "overcharged",
-            gameId: "tactical_drone_defense",
-            title: "Overcharged",
-            description: "Reach maximum overheat level",
-            icon: "⚡",
-            rarity: "uncommon"
-        },
-        warehouse_veteran: {
-            id: "warehouse_veteran",
-            gameId: "tactical_drone_defense",
-            title: "Warehouse Veteran",
-            description: "Survive 50 waves total",
-            icon: "💪",
-            rarity: "rare"
-        },
-        surgical_precision: {
-            id: "surgical_precision",
-            gameId: "tactical_drone_defense",
-            title: "Surgical Precision",
-            description: "Achieve 90% accuracy in a game",
-            icon: "🎯",
-            rarity: "epic"
-        },
-        juggernaut_killer: {
-            id: "juggernaut_killer",
-            gameId: "tactical_drone_defense",
-            title: "Juggernaut Killer",
-            description: "Defeat the Juggernaut boss",
-            icon: "🤖",
-            rarity: "epic"
-        },
-        legend: {
-            id: "legend",
-            gameId: "tactical_drone_defense",
-            title: "Legend",
-            description: "Survive wave 100",
-            icon: "👑",
-            rarity: "legendary"
-        }
-    },
-    tactical_drone_defense_beta: {
-        first_scrap: {
-            id: "first_scrap",
-            gameId: "tactical_drone_defense_beta",
-            title: "First Scrap",
-            description: "Destroy your very first enemy robot.",
-            icon: "💥",
-            rarity: "common"
-        },
-        fashion_forward: {
-            id: "fashion_forward",
-            gameId: "tactical_drone_defense_beta",
-            title: "Fashion Forward",
-            description: "Change your character skin in the main menu.",
-            icon: "🧥",
-            rarity: "common"
-        },
-        heavy_artillery: {
-            id: "heavy_artillery",
-            gameId: "tactical_drone_defense_beta",
-            title: "Heavy Artillery",
-            description: "Fire the Tower Cannon in Defend the Plane.",
-            icon: "☢️",
-            rarity: "uncommon"
-        },
-        surgical_precision: {
-            id: "surgical_precision",
-            gameId: "tactical_drone_defense_beta",
-            title: "Surgical Precision",
-            description: "Successfully land a 10x Damage Precision Strike.",
-            icon: "🎯",
-            rarity: "epic"
-        },
-        death_from_above: {
-            id: "death_from_above",
-            gameId: "tactical_drone_defense_beta",
-            title: "Death From Above",
-            description: "Successfully land a 3x Damage Airborne Critical.",
-            icon: "🦅",
-            rarity: "epic"
-        },
-        warehouse_veteran: {
-            id: "warehouse_veteran",
-            gameId: "tactical_drone_defense_beta",
-            title: "Warehouse Veteran",
-            description: "Reach Wave 5 in Warehouse Survival.",
-            icon: "🏭",
-            rarity: "uncommon"
-        },
-        airfield_defender: {
-            id: "airfield_defender",
-            gameId: "tactical_drone_defense_beta",
-            title: "Airfield Defender",
-            description: "Reach Wave 5 in Defend the Plane.",
-            icon: "✈️",
-            rarity: "uncommon"
-        },
-        juggernaut_slayer: {
-            id: "juggernaut_slayer",
-            gameId: "tactical_drone_defense_beta",
-            title: "David vs. Goliath",
-            description: "Defeat the massive Juggernaut Boss.",
-            icon: "🦾",
-            rarity: "epic"
-        },
-        fresh_supplies: {
-            id: "fresh_supplies",
-            gameId: "tactical_drone_defense_beta",
-            title: "Fresh Supplies",
-            description: "Receive health from defeating a Soldier for the first time without exceeding 100 HP.",
-            icon: "💚",
-            rarity: "common"
-        },
-        overcharged: {
-            id: "overcharged",
-            gameId: "tactical_drone_defense_beta",
-            title: "Overcharged",
-            description: "Increase your suit integrity above 100 HP using the Overheal system.",
-            icon: "⚡",
-            rarity: "uncommon"
-        },
-        tactical_drone_denied: {
-            id: "tactical_drone_denied",
-            gameId: "tactical_drone_defense_beta",
-            title: "Tactical Drone Denied",
-            description: "Destroy a Controller before destroying any Drones in the current wave.",
-            icon: "📡",
-            rarity: "rare"
-        },
-        drone_hunter: {
-            id: "drone_hunter",
-            gameId: "tactical_drone_defense_beta",
-            title: "Drone Hunter",
-            description: "Destroy 100 Drones.",
-            icon: "🤖",
-            rarity: "rare"
-        },
-        elite_eliminator: {
-            id: "elite_eliminator",
-            gameId: "tactical_drone_defense_beta",
-            title: "Elite Eliminator",
-            description: "Destroy 5 Elite Guards.",
-            icon: "⭐",
-            rarity: "rare"
-        },
-        boss_slayer: {
-            id: "boss_slayer",
-            gameId: "tactical_drone_defense_beta",
-            title: "Boss Slayer",
-            description: "Defeat any boss enemy.",
-            icon: "👹",
-            rarity: "epic"
-        },
-        warehouse_survivor: {
-            id: "warehouse_survivor",
-            gameId: "tactical_drone_defense_beta",
-            title: "Warehouse Survivor",
-            description: "Survive wave 10 in Warehouse Survival.",
-            icon: "🛡️",
-            rarity: "uncommon"
-        },
-        warehouse_champion: {
-            id: "warehouse_champion",
-            gameId: "tactical_drone_defense_beta",
-            title: "Warehouse Champion",
-            description: "Survive wave 20 in Warehouse Survival.",
-            icon: "🏆",
-            rarity: "rare"
-        },
-        warehouse_legend: {
-            id: "warehouse_legend",
-            gameId: "tactical_drone_defense_beta",
-            title: "Warehouse Legend",
-            description: "Survive wave 30 in Warehouse Survival.",
-            icon: "👑",
-            rarity: "legendary"
-        },
-        no_survivors: {
-            id: "no_survivors",
-            gameId: "tactical_drone_defense_beta",
-            title: "No Survivors",
-            description: "Complete a wave without taking any damage.",
-            icon: "💀",
-            rarity: "epic"
-        }
-    },
-    'sky-ace': {
-        trainee_takeoff: {
-            id: "trainee_takeoff",
-            gameId: "sky-ace",
-            title: "Flight School",
-            description: "Take off for the very first time.",
-            icon: "🛫",
-            rarity: "common"
-        },
-        trainee_boost: {
-            id: "trainee_boost",
-            gameId: "sky-ace",
-            title: "Need for Speed",
-            description: "Hit your first speed boost.",
-            icon: "⚡",
-            rarity: "uncommon"
-        },
-        trainee_rings: {
-            id: "trainee_rings",
-            gameId: "sky-ace",
-            title: "Shiny!",
-            description: "Collect 5 rings in one flight.",
-            icon: "🪙",
-            rarity: "common"
-        },
-        expert_survivor: {
-            id: "expert_survivor",
-            gameId: "sky-ace",
-            title: "Expert Pilot",
-            description: "Survive a flight for 60 seconds.",
-            icon: "⏱️",
-            rarity: "uncommon"
-        },
-        expert_fuel: {
-            id: "expert_fuel",
-            gameId: "sky-ace",
-            title: "Pit Stop",
-            description: "Collect 5 fuel cans in one flight.",
-            icon: "⛽",
-            rarity: "uncommon"
-        },
-        expert_rings: {
-            id: "expert_rings",
-            gameId: "sky-ace",
-            title: "Ring Master",
-            description: "Collect 25 rings in one flight.",
-            icon: "💍",
-            rarity: "rare"
-        },
-        ace_survivor: {
-            id: "ace_survivor",
-            gameId: "sky-ace",
-            title: "Sky Ace",
-            description: "Survive a grueling 3 minutes.",
-            icon: "👑",
-            rarity: "epic"
-        },
-        ace_speed: {
-            id: "ace_speed",
-            gameId: "sky-ace",
-            title: "Supersonic",
-            description: "Hit 10 boosts in one flight.",
-            icon: "🚀",
-            rarity: "rare"
-        },
-        ace_rings: {
-            id: "ace_rings",
-            gameId: "sky-ace",
-            title: "Dragon's Hoard",
-            description: "Collect 100 rings in one flight.",
-            icon: "🐉",
-            rarity: "legendary"
-        }
-    },
-    neon_survival: {
-        first_kill: {
-            id: "first_kill",
-            gameId: "neon_survival",
-            title: "First Target",
-            description: "Kill your first enemy",
-            icon: "🎯",
-            rarity: "common"
-        },
-        eliminator: {
-            id: "eliminator",
-            gameId: "neon_survival",
-            title: "Eliminator",
-            description: "Kill 100 enemies",
-            icon: "⚡",
-            rarity: "uncommon"
-        },
-        destroyer: {
-            id: "destroyer",
-            gameId: "neon_survival",
-            title: "Destroyer",
-            description: "Kill 1000 enemies",
-            icon: "💥",
-            rarity: "rare"
-        },
-        high_score: {
-            id: "high_score",
-            gameId: "neon_survival",
-            title: "High Score",
-            description: "Reach 1,000 score",
-            icon: "🏆",
-            rarity: "uncommon"
-        },
-        legend: {
-            id: "legend",
-            gameId: "neon_survival",
-            title: "Legend",
-            description: "Reach 10,000 score",
-            icon: "👑",
-            rarity: "rare"
-        },
-        neon_survivor: {
-            id: "neon_survivor",
-            gameId: "neon_survival",
-            title: "Neon Survivor",
-            description: "Reach 100,000 score",
-            icon: "🌟",
-            rarity: "legendary"
-        },
-        survivor: {
-            id: "survivor",
-            gameId: "neon_survival",
-            title: "Survivor",
-            description: "Stay alive for 5 minutes",
-            icon: "⏱️",
-            rarity: "uncommon"
-        },
-        endurance: {
-            id: "endurance",
-            gameId: "neon_survival",
-            title: "Endurance",
-            description: "Stay alive for 30 minutes",
-            icon: "🔥",
-            rarity: "epic"
-        },
-        dash_master: {
-            id: "dash_master",
-            gameId: "neon_survival",
-            title: "Dash Master",
-            description: "Dash 100 times",
-            icon: "💨",
-            rarity: "uncommon"
-        },
-        power_collector: {
-            id: "power_collector",
-            gameId: "neon_survival",
-            title: "Power Collector",
-            description: "Collect 50 powerups",
-            icon: "⚡",
-            rarity: "uncommon"
-        },
-        deadeye: {
-            id: "deadeye",
-            gameId: "neon_survival",
-            title: "Deadeye",
-            description: "Achieve 80% accuracy (>100 shots)",
-            icon: "🎯",
-            rarity: "epic"
-        },
-        explorer: {
-            id: "explorer",
-            gameId: "neon_survival",
-            title: "Explorer",
-            description: "Travel 10,000 units",
-            icon: "🗺️",
-            rarity: "uncommon"
-        },
-        completionist: {
-            id: "completionist",
-            gameId: "neon_survival",
-            title: "Achievement Hunter",
-            description: "Unlock all other achievements",
-            icon: "🏅",
-            rarity: "legendary"
-        }
     }
 };
 
@@ -449,8 +82,10 @@ export const achievements = {
 
 export function getAllAchievements(gameId) {
     const all = [];
-    for (const achId in achievements[gameId]) {
-        all.push({ ...achievements[gameId][achId], gameId });
+    if (achievements[gameId]) {
+        for (const achId in achievements[gameId]) {
+            all.push({ ...achievements[gameId][achId], gameId });
+        }
     }
     return all;
 }
@@ -480,6 +115,7 @@ export function addGameAchievements(gameId, achDefs) {
             ...achDefs[achId]
         };
     }
+    setAchievementsEnabled(gameId, true);
 }
 
 // ==========================================
@@ -487,7 +123,5 @@ export function addGameAchievements(gameId, achDefs) {
 // ==========================================
 
 export function initialize() {
-    // Achievements system is data-driven, no special initialization needed
-    // Games can register achievements at runtime via addGameAchievements()
     console.log('Achievements system initialized');
 }
