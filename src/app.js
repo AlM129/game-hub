@@ -26,6 +26,215 @@ let currentSearchTerm = '';
 let currentLibraryFilter = 'all';
 let currentDetailGameId = null;
 
+// Updater state
+let launcherUpdateInfo = null;
+let launcherUpdateReady = false;
+let launcherUpdateState = 'idle'; // 'idle' | 'available' | 'downloading' | 'ready' | 'error'
+let updaterCleanupAvailable = null;
+let updaterCleanupDownloaded = null;
+let updaterCleanupProgress = null;
+let updaterCleanupError = null;
+
+// ==========================================
+// UPDATER LISTENERS
+// ==========================================
+
+function setupUpdaterListener() {
+    if (!window.updater) {
+        console.warn('GameHub: updater bridge not available');
+        return;
+    }
+
+    updaterCleanupAvailable = window.updater.onUpdateAvailable((info) => {
+        if (info && info.version) {
+            launcherUpdateInfo = info;
+            launcherUpdateState = 'available';
+            showLauncherUpdateBannerIfReady();
+        }
+    });
+
+    updaterCleanupDownloaded = window.updater.onUpdateDownloaded((info) => {
+        if (info && info.version) {
+            launcherUpdateInfo = info;
+            launcherUpdateReady = true;
+            launcherUpdateState = 'ready';
+            showLauncherUpdateBannerIfReady();
+            showSuccess('Game Hub update ready. Restart to install.', 5000);
+        }
+    });
+
+    updaterCleanupProgress = window.updater.onDownloadProgress((progress) => {
+        if (progress && typeof progress.percent === 'number') {
+            if (launcherUpdateState !== 'downloading') {
+                launcherUpdateState = 'downloading';
+                if (launcherUpdateInfo) {
+                    enterDownloadingState(launcherUpdateInfo.version);
+                }
+            }
+            updateLauncherUpdateBannerProgress(progress);
+        }
+    });
+
+    updaterCleanupError = window.updater.onUpdateError((error) => {
+        launcherUpdateState = 'error';
+        showLauncherUpdateBannerIfReady();
+        if (error && error.message) {
+            showError(error.message, 5000);
+        }
+    });
+}
+
+function enterDownloadingState(version) {
+    const message = document.getElementById('launcherUpdateMessage');
+    const primaryBtn = document.getElementById('launcherUpdatePrimaryBtn');
+    const progressContainer = document.getElementById('launcherUpdateProgressContainer');
+
+    if (message) {
+        message.innerHTML = `Downloading Game Hub <span id="launcherUpdateVersion" class="font-mono font-bold">v${version}</span>…`;
+    }
+    if (primaryBtn) {
+        primaryBtn.textContent = 'Downloading...';
+        primaryBtn.disabled = true;
+        primaryBtn.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+    if (progressContainer) progressContainer.classList.remove('hidden');
+}
+
+function updateLauncherUpdateBannerProgress(progress) {
+    const percent = Math.max(0, Math.min(100, Math.round(progress.percent || 0)));
+    const progressBar = document.getElementById('launcherUpdateProgressBar');
+    const percentLabel = document.getElementById('launcherUpdatePercent');
+
+    if (progressBar) progressBar.style.width = `${percent}%`;
+    if (percentLabel) {
+        percentLabel.classList.remove('hidden');
+        percentLabel.textContent = `${percent}%`;
+    }
+}
+
+function showLauncherUpdateBannerIfReady() {
+    if (!launcherUpdateInfo) return;
+    const banner = document.getElementById('launcherUpdateBanner');
+    if (banner) {
+        showLauncherUpdateBanner(launcherUpdateInfo.version);
+    }
+}
+
+function showLauncherUpdateBanner(version) {
+    const banner = document.getElementById('launcherUpdateBanner');
+    const message = document.getElementById('launcherUpdateMessage');
+    const primaryBtn = document.getElementById('launcherUpdatePrimaryBtn');
+    const progressContainer = document.getElementById('launcherUpdateProgressContainer');
+    const progressBar = document.getElementById('launcherUpdateProgressBar');
+    const percentLabel = document.getElementById('launcherUpdatePercent');
+
+    if (!banner || !message) return;
+
+    // Reset progress UI
+    if (progressContainer) progressContainer.classList.add('hidden');
+    if (progressBar) progressBar.style.width = '0%';
+    if (percentLabel) {
+        percentLabel.classList.add('hidden');
+        percentLabel.textContent = '0%';
+    }
+
+    // Reset primary button
+    if (primaryBtn) {
+        primaryBtn.classList.remove('hidden', 'opacity-50', 'cursor-not-allowed');
+        primaryBtn.disabled = false;
+    }
+
+    if (launcherUpdateState === 'available') {
+        message.innerHTML = `Game Hub <span id="launcherUpdateVersion" class="font-mono font-bold">v${version}</span> is available.`;
+        if (primaryBtn) {
+            primaryBtn.textContent = 'Update Now';
+            primaryBtn.onclick = updateNow;
+        }
+    } else if (launcherUpdateState === 'ready') {
+        message.textContent = 'Update ready';
+        if (primaryBtn) {
+            primaryBtn.textContent = 'Restart & Update';
+            primaryBtn.onclick = restartAndInstall;
+        }
+    } else if (launcherUpdateState === 'error') {
+        message.textContent = 'Couldn\'t download the update. Try again later.';
+        if (primaryBtn) primaryBtn.classList.add('hidden');
+    } else if (launcherUpdateState === 'downloading') {
+        enterDownloadingState(version);
+    }
+
+    banner.classList.remove('hidden');
+}
+
+function hideLauncherUpdateBanner() {
+    const banner = document.getElementById('launcherUpdateBanner');
+    if (banner) {
+        banner.classList.add('hidden');
+    }
+}
+
+async function updateNow() {
+    if (!window.updater || launcherUpdateState === 'downloading') return;
+    launcherUpdateState = 'downloading';
+    if (launcherUpdateInfo) {
+        enterDownloadingState(launcherUpdateInfo.version);
+    }
+    await window.updater.downloadUpdate();
+}
+
+async function restartAndInstall() {
+    if (!window.updater) return;
+    hideLauncherUpdateBanner();
+    try {
+        const result = await window.updater.installUpdate();
+        if (result && !result.success) {
+            showError(result.error || 'Could not install update.', 5000);
+            launcherUpdateState = 'error';
+            if (launcherUpdateInfo) {
+                showLauncherUpdateBanner(launcherUpdateInfo.version);
+            }
+        }
+    } catch (e) {
+        showError('Could not install update.', 5000);
+    }
+}
+
+async function dismissLauncherUpdate() {
+    if (!window.updater) return;
+    await window.updater.dismissUpdate();
+    hideLauncherUpdateBanner();
+    launcherUpdateState = 'idle';
+    launcherUpdateInfo = null;
+    launcherUpdateReady = false;
+}
+
+async function checkForUpdates() {
+    const statusEl = document.getElementById('settingUpdateStatus');
+    const statusText = document.getElementById('settingUpdateStatusText');
+
+    if (!window.updater) {
+        if (statusEl) statusEl.classList.remove('hidden');
+        if (statusText) statusText.textContent = 'Updater not available.';
+        return;
+    }
+
+    if (statusEl) statusEl.classList.remove('hidden');
+    if (statusText) statusText.textContent = 'Checking for updates...';
+
+    try {
+        const result = await window.updater.checkForUpdates();
+        if (result && result.checked === false) {
+            if (statusText) statusText.textContent = result.message || 'Not available in development mode.';
+        }
+    } catch (e) {
+        if (statusText) statusText.textContent = 'Couldn\'t check for updates. Try again later.';
+    }
+}
+
+// Register updater listeners immediately so we don't miss events that
+// arrive before DOMContentLoaded.
+setupUpdaterListener();
+
 // ==========================================
 // DOWNLOAD STATE
 // ==========================================
@@ -1852,3 +2061,12 @@ window.launchDownloadedGame = launchDownloadedGame;
 window.openUninstallModal = openUninstallModal;
 window.closeUninstallModal = closeUninstallModal;
 window.confirmUninstall = confirmUninstall;
+
+// Updater functions
+window.restartAndInstall = restartAndInstall;
+window.dismissLauncherUpdate = dismissLauncherUpdate;
+window.updateNow = updateNow;
+window.checkForUpdates = checkForUpdates;
+window.handleLauncherUpdatePrimary = function() {
+    // Dynamically assigned by showLauncherUpdateBanner
+};

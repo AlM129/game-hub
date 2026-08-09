@@ -45,6 +45,33 @@ contextBridge.exposeInMainWorld('appInfo', {
     get: () => ipcRenderer.invoke('app:info')
 });
 
+contextBridge.exposeInMainWorld('updater', {
+    onUpdateAvailable: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('launcher-update-available', handler);
+        return () => ipcRenderer.removeListener('launcher-update-available', handler);
+    },
+    onUpdateDownloaded: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('launcher-update-downloaded', handler);
+        return () => ipcRenderer.removeListener('launcher-update-downloaded', handler);
+    },
+    onDownloadProgress: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('launcher-update-download-progress', handler);
+        return () => ipcRenderer.removeListener('launcher-update-download-progress', handler);
+    },
+    onUpdateError: (callback) => {
+        const handler = (event, data) => callback(data);
+        ipcRenderer.on('launcher-update-error', handler);
+        return () => ipcRenderer.removeListener('launcher-update-error', handler);
+    },
+    downloadUpdate: () => ipcRenderer.invoke('app:downloadUpdate'),
+    installUpdate: () => ipcRenderer.invoke('app:installUpdate'),
+    dismissUpdate: () => ipcRenderer.invoke('app:dismissUpdate'),
+    checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates')
+});
+
 contextBridge.exposeInMainWorld('gameHub', {
     returnToLauncher: () => ipcRenderer.invoke('game:returnToLauncher')
 });

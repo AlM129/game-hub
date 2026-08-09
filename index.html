@@ -598,6 +598,30 @@
                 </div>
             </header>
 
+            <!-- Launcher Update Banner -->
+            <div id="launcherUpdateBanner" class="hidden bg-blue-900/30 border-b border-blue-700 px-8 py-3">
+                <div class="flex items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                        <span id="launcherUpdateMessage" class="text-sm text-blue-200">
+                            Game Hub <span id="launcherUpdateVersion" class="font-mono font-bold">update</span> is available.
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span id="launcherUpdatePercent" class="hidden text-xs text-blue-200 font-mono">0%</span>
+                        <button id="launcherUpdatePrimaryBtn" onclick="handleLauncherUpdatePrimary()" class="text-blue-400 underline font-bold hover:text-blue-300">Update Now</button>
+                        <button onclick="dismissLauncherUpdate()" class="text-gray-400 hover:text-white text-lg leading-none px-2">&times;</button>
+                    </div>
+                </div>
+                <div id="launcherUpdateProgressContainer" class="hidden mt-2">
+                    <div class="w-full bg-gray-700 rounded-full h-1.5">
+                        <div id="launcherUpdateProgressBar" class="bg-blue-500 h-1.5 rounded-full transition-all duration-200" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Content Views -->
             <main class="flex-grow p-8 view-container">
 
@@ -979,10 +1003,16 @@
                             </div>
                             <div class="setting-row">
                                 <div>
-                                    <div class="text-sm font-medium text-white">Game Hub</div>
+                                    <div class="text-sm font-medium text-white">Game Hub Version</div>
                                     <div class="text-xs text-gray-500 mt-0.5">Launcher version</div>
                                 </div>
-                                <span id="settingAppVersion" class="text-xs text-gray-400 font-mono">—</span>
+                                <div class="flex items-center gap-3">
+                                    <span id="settingAppVersion" class="text-xs text-gray-400 font-mono">—</span>
+                                    <button onclick="checkForUpdates()" class="text-xs bg-blue-900/30 text-blue-400 hover:bg-blue-900/50 px-3 py-1.5 rounded-lg font-bold transition-colors btn-press">Check for Updates</button>
+                                </div>
+                            </div>
+                            <div id="settingUpdateStatus" class="hidden px-5 py-3 border-t border-gray-700">
+                                <span id="settingUpdateStatusText" class="text-xs text-gray-400"></span>
                             </div>
                             <div class="setting-row">
                                 <div>

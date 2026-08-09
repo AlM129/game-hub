@@ -27,6 +27,9 @@ function getAutoUpdater() {
     return appUpdater;
 }
 
+let launcherUpdateReady = false;
+let mainWindow = null;
+
 const SCHEMA_VERSION = 2;
 const DEFAULT_PROFILE_ID = 'default';
 const DEFAULT_PROFILE_NAME = 'Default';
@@ -198,13 +201,38 @@ function setupUpdater() {
     autoUpdater.on('update-available', (info) => {
         const version = (info && typeof info.version === 'string') ? info.version : 'unknown';
         console.log(`[Updater] Launcher update available: ${version}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('launcher-update-available', { version });
+        }
+    });
+    autoUpdater.on('update-downloaded', (info) => {
+        const version = (info && typeof info.version === 'string') ? info.version : 'unknown';
+        launcherUpdateReady = true;
+        console.log(`[Updater] Launcher update downloaded: ${version}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('launcher-update-downloaded', { version });
+        }
     });
     autoUpdater.on('update-not-available', () => {
         console.log('[Updater] No launcher update available');
     });
+    autoUpdater.on('download-progress', (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('launcher-update-download-progress', {
+                percent: progress.percent,
+                transferred: progress.transferred,
+                total: progress.total,
+                bytesPerSecond: progress.bytesPerSecond
+            });
+        }
+    });
+
     autoUpdater.on('error', (err) => {
         const message = (err && err.message) ? err.message : String(err);
-        console.warn(`[Updater] Launcher update check error (continuing normally): ${message}`);
+        console.warn(`[Updater] Launcher update error (continuing normally): ${message}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('launcher-update-error', { message });
+        }
     });
 
     // Fire-and-forget. A slow or failing network request must never delay or
@@ -239,7 +267,22 @@ function createWindow() {
         setupUpdater();
     });
 
+    mainWindow = win;
     return win;
+}
+
+const singleInstanceLock = app.requestSingleInstanceLock();
+
+if (!singleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        const win = BrowserWindow.getAllWindows().find(w => !w.isDestroyed());
+        if (win) {
+            if (win.isMinimized()) win.restore();
+            win.focus();
+        }
+    });
 }
 
 app.whenReady().then(() => {
@@ -626,6 +669,39 @@ app.whenReady().then(() => {
             version: pkg.version,
             schemaVersion: SCHEMA_VERSION
         };
+    });
+
+    ipcMain.handle('app:downloadUpdate', () => {
+        const autoUpdater = getAutoUpdater();
+        return autoUpdater.downloadUpdate();
+    });
+
+    ipcMain.handle('app:installUpdate', () => {
+        if (!launcherUpdateReady) {
+            return { success: false, error: 'No downloaded update is ready.' };
+        }
+        const autoUpdater = getAutoUpdater();
+        autoUpdater.quitAndInstall(true, true);
+        return { success: true };
+    });
+
+    ipcMain.handle('app:dismissUpdate', () => {
+        return { dismissed: true };
+    });
+
+    ipcMain.handle('app:checkForUpdates', () => {
+        if (!app.isPackaged) {
+            return { checked: false, message: 'Not available in development mode.' };
+        }
+        const autoUpdater = getAutoUpdater();
+        autoUpdater.checkForUpdates().catch((err) => {
+            const message = (err && err.message) ? err.message : String(err);
+            console.warn(`[Updater] Manual check failed: ${message}`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('launcher-update-error', { message: 'Couldn\'t check for updates. Try again later.' });
+            }
+        });
+        return { checked: true };
     });
 
     ipcMain.handle('game:returnToLauncher', () => {
