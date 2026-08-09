@@ -13,6 +13,20 @@ const {
 // Save-data cleanup + uninstall orchestration
 const { uninstallGameWithSaveHandling } = require('./src/downloader/saveCleanup');
 
+// Launcher self-update detection (updates GAME HUB itself, not games).
+// Electron-updater is loaded LAZILY so development mode (npm start /
+// app.isPackaged === false) never instantiates the updater. Accessing
+// require('electron-updater').autoUpdater constructs the updater, which reads
+// app.getVersion() and app-update.yml; that is only ever done by setupUpdater()
+// on packaged builds.
+let appUpdater = null;
+function getAutoUpdater() {
+    if (appUpdater === null) {
+        appUpdater = require('electron-updater').autoUpdater;
+    }
+    return appUpdater;
+}
+
 const SCHEMA_VERSION = 2;
 const DEFAULT_PROFILE_ID = 'default';
 const DEFAULT_PROFILE_NAME = 'Default';
@@ -155,6 +169,51 @@ function createStore() {
     return s;
 }
 
+/**
+ * Configure Game Hub launcher update DETECTION (packaged builds only).
+ *
+ * This updates GAME HUB itself - it is deliberately separate from the
+ * per-game update flow (registry-driven game updates use their own logic).
+ *
+ * Guarantees:
+ *   - Completely inert in development (app.isPackaged === false), so
+ *     `npm start` never performs an updater check.
+ *   - DETECTS a newer release only: autoDownload stays false and
+ *     quitAndInstall() is never called from here (download/install belong to a
+ *     later phase).
+ *   - Never blocks launch: the network check is fire-and-forget and every
+ *     failure path (offline, GitHub unreachable, updater error, malformed
+ *     metadata) is caught and only logged.
+ */
+function setupUpdater() {
+    if (!app.isPackaged) {
+        console.log('[Updater] Skipping launcher update check (development mode)');
+        return;
+    }
+
+    const autoUpdater = getAutoUpdater();
+    autoUpdater.autoDownload = false;
+    autoUpdater.logger = console;
+
+    autoUpdater.on('update-available', (info) => {
+        const version = (info && typeof info.version === 'string') ? info.version : 'unknown';
+        console.log(`[Updater] Launcher update available: ${version}`);
+    });
+    autoUpdater.on('update-not-available', () => {
+        console.log('[Updater] No launcher update available');
+    });
+    autoUpdater.on('error', (err) => {
+        const message = (err && err.message) ? err.message : String(err);
+        console.warn(`[Updater] Launcher update check error (continuing normally): ${message}`);
+    });
+
+    // Fire-and-forget. A slow or failing network request must never delay or
+    // block Game Hub startup.
+    autoUpdater.checkForUpdates().catch((err) => {
+        const message = (err && err.message) ? err.message : String(err);
+        console.warn(`[Updater] Launcher update check failed (continuing normally): ${message}`);
+    });
+}
 
 function createWindow() {
     const win = new BrowserWindow({
@@ -172,6 +231,14 @@ function createWindow() {
     });
 
     win.loadFile('index.html');
+
+    // Run launcher update detection only after the main window has finished
+    // loading. setupUpdater() is fire-and-forget and packaged-build-only, so a
+    // slow/failed network check can never hold up the window.
+    win.webContents.once('did-finish-load', () => {
+        setupUpdater();
+    });
+
     return win;
 }
 

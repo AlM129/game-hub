@@ -7,6 +7,9 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac --x64 --arm64",
+    "dist:mac:x64": "electron-builder --mac --x64",
+    "dist:mac:arm64": "electron-builder --mac --arm64",
     "test": "playwright test",
     "test:smoke": "playwright test tests/launcher.spec.js tests/games.spec.js tests/bridge.spec.js"
   },
@@ -14,9 +17,17 @@
     "appId": "com.gamehub.app",
     "productName": "Game Hub",
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "icon.icns",
       "identity": null
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "AlM129",
+      "repo": "game-hub"
     }
   },
   "keywords": [],
