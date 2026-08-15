@@ -179,7 +179,13 @@ async function updateNow() {
     if (launcherUpdateInfo) {
         enterDownloadingState(launcherUpdateInfo.version);
     }
-    await window.updater.downloadUpdate();
+    try {
+        await window.updater.downloadUpdate();
+    } catch (e) {
+        launcherUpdateState = 'error';
+        showLauncherUpdateBannerIfReady();
+        showError('Could not download update. Try again later.', 5000);
+    }
 }
 
 async function restartAndInstall() {

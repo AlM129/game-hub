@@ -1,6 +1,11 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const Store = require('electron-store').default;
 const pkg = require('./package.json');
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+const https = require('https');
+const AdmZip = require('adm-zip');
 
 // Download Manager
 const {
@@ -28,6 +33,8 @@ function getAutoUpdater() {
 }
 
 let launcherUpdateReady = false;
+let cachedUpdateAssetUrl = null;
+let cachedUpdateVersion = null;
 let mainWindow = null;
 
 const SCHEMA_VERSION = 2;
@@ -198,50 +205,120 @@ function setupUpdater() {
     autoUpdater.autoDownload = false;
     autoUpdater.logger = console;
 
-    autoUpdater.on('update-available', (info) => {
-        const version = (info && typeof info.version === 'string') ? info.version : 'unknown';
+    // ==========================================
+    // TEST-ONLY FAKE UPDATE
+    // Remove this block after updater testing.
+    // ==========================================
+    if (process.env.GAMEHUB_TEST_UPDATE === '1') {
+        const testVersion = '2.0.1';
+        const testUrl =
+            process.env.GAMEHUB_TEST_UPDATE_URL ||
+            'http://127.0.0.1:8123/Game-Hub-2.0.1-arm64-mac.zip';
+
+        cachedUpdateVersion = testVersion;
+        cachedUpdateAssetUrl = testUrl;
+
+        console.log(`[Updater] TEST MODE: fake update available: ${testVersion}`);
+        console.log(`[Updater] TEST MODE: asset URL: ${testUrl}`);
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('launcher-update-available', {
+                version: testVersion
+            });
+        }
+
+        return;
+    }
+
+    // ==========================================
+    // REAL UPDATE DETECTION
+    // ==========================================
+    autoUpdater.on('update-available', async (info) => {
+        const version =
+            (info && typeof info.version === 'string')
+                ? info.version
+                : 'unknown';
+
+        cachedUpdateVersion = version;
+
         console.log(`[Updater] Launcher update available: ${version}`);
+
+        try {
+            const result = await autoUpdater.getUpdateInfoAndProvider();
+            const files = result.provider.resolveFiles(result.info);
+
+            const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+
+            const file = files.find(f => {
+                const url =
+                    typeof f.url === 'string'
+                        ? f.url
+                        : (f.url && f.url.href)
+                            ? f.url.href
+                            : '';
+
+                return url.includes(`-${arch}.`) ||
+                    url.includes(`-${arch}.zip`);
+            }) || files[0];
+
+            if (file) {
+                cachedUpdateAssetUrl =
+                    typeof file.url === 'string'
+                        ? file.url
+                        : (file.url && file.url.href)
+                            ? file.url.href
+                            : String(file.url);
+            }
+        } catch (e) {
+            console.warn(
+                '[Updater] Failed to resolve update asset URL:',
+                e.message || e
+            );
+        }
+
         if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('launcher-update-available', { version });
+            mainWindow.webContents.send(
+                'launcher-update-available',
+                { version }
+            );
         }
     });
-    autoUpdater.on('update-downloaded', (info) => {
-        const version = (info && typeof info.version === 'string') ? info.version : 'unknown';
-        launcherUpdateReady = true;
-        console.log(`[Updater] Launcher update downloaded: ${version}`);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('launcher-update-downloaded', { version });
-        }
-    });
+
     autoUpdater.on('update-not-available', () => {
         console.log('[Updater] No launcher update available');
     });
-    autoUpdater.on('download-progress', (progress) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('launcher-update-download-progress', {
-                percent: progress.percent,
-                transferred: progress.transferred,
-                total: progress.total,
-                bytesPerSecond: progress.bytesPerSecond
-            });
-        }
-    });
 
     autoUpdater.on('error', (err) => {
-        const message = (err && err.message) ? err.message : String(err);
-        console.warn(`[Updater] Launcher update error (continuing normally): ${message}`);
+        const message =
+            (err && err.message)
+                ? err.message
+                : String(err);
+
+        console.warn(
+            `[Updater] Launcher update error (continuing normally): ${message}`
+        );
+
         if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('launcher-update-error', { message });
+            mainWindow.webContents.send(
+                'launcher-update-error',
+                { message }
+            );
         }
     });
 
-    // Fire-and-forget. A slow or failing network request must never delay or
-    // block Game Hub startup.
     autoUpdater.checkForUpdates().catch((err) => {
-        const message = (err && err.message) ? err.message : String(err);
-        console.warn(`[Updater] Launcher update check failed (continuing normally): ${message}`);
+        const message =
+            (err && err.message)
+                ? err.message
+                : String(err);
+
+        console.warn(
+            `[Updater] Launcher update check failed (continuing normally): ${message}`
+        );
     });
 }
+
+
 
 function createWindow() {
     const win = new BrowserWindow({
@@ -584,7 +661,7 @@ app.whenReady().then(() => {
 
     // Override createWindow to capture the window reference
     const originalCreateWindow = createWindow;
-    createWindow = function() {
+    createWindow = function () {
         mainWindow = originalCreateWindow();
         return mainWindow;
     };
@@ -671,17 +748,261 @@ app.whenReady().then(() => {
         };
     });
 
-    ipcMain.handle('app:downloadUpdate', () => {
-        const autoUpdater = getAutoUpdater();
-        return autoUpdater.downloadUpdate();
+    ipcMain.handle('app:downloadUpdate', async () => {
+        if (!cachedUpdateAssetUrl) {
+            throw new Error('No update asset URL available. Please check for updates first.');
+        }
+
+        const tempDir = app.getPath('temp');
+        const zipPath = path.join(tempDir, 'gamehub-update.zip');
+
+        // If already downloaded, reuse it
+        if (fs.existsSync(zipPath)) {
+            launcherUpdateReady = true;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('launcher-update-downloaded', { version: cachedUpdateVersion });
+            }
+            return { success: true, cached: true };
+        }
+
+        console.log(`[Updater] Downloading update from: ${cachedUpdateAssetUrl}`);
+
+        // We'll stream the download manually so we can emit progress events.
+        return new Promise((resolve, reject) => {
+            const url = new URL(cachedUpdateAssetUrl);
+            const transport = url.protocol === 'https:' ? https : require('http');
+
+            const request = transport.get(url, (response) => {
+                if (response.statusCode === 301 || response.statusCode === 302) {
+                    transport.get(response.headers.location, (followResponse) => {
+                        pump(followResponse, null, zipPath, resolve, reject);
+                    });
+                } else {
+                    pump(response, null, zipPath, resolve, reject);
+                }
+            });
+
+            request.on('error', (err) => {
+                reject(new Error(`Download failed: ${err.message}`));
+            });
+        });
     });
 
-    ipcMain.handle('app:installUpdate', () => {
+    function pump(response, destination, zipPath, resolve, reject) {
+        const totalSize = parseInt(response.headers['content-length'], 10) || 0;
+        let transferred = 0;
+        const fileStream = fs.createWriteStream(zipPath);
+
+        response.pipe(fileStream);
+
+        response.on('data', (chunk) => {
+            transferred += chunk.length;
+            const percent = totalSize > 0 ? Math.round((transferred / totalSize) * 100) : 0;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('launcher-update-download-progress', {
+                    percent,
+                    transferred,
+                    total: totalSize,
+                    bytesPerSecond: 0
+                });
+            }
+        });
+
+        fileStream.on('finish', () => {
+            fileStream.close();
+            launcherUpdateReady = true;
+            console.log(`[Updater] Download complete: ${zipPath}`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('launcher-update-downloaded', { version: cachedUpdateVersion });
+            }
+            resolve({ success: true });
+        });
+
+        fileStream.on('error', (err) => {
+            reject(new Error(`Failed to save update: ${err.message}`));
+        });
+    }
+
+    ipcMain.handle('app:installUpdate', async () => {
         if (!launcherUpdateReady) {
             return { success: false, error: 'No downloaded update is ready.' };
         }
-        const autoUpdater = getAutoUpdater();
-        autoUpdater.quitAndInstall(true, true);
+
+        const tempDir = app.getPath('temp');
+        const zipPath = path.join(tempDir, 'gamehub-update.zip');
+
+        if (!fs.existsSync(zipPath)) {
+            return { success: false, error: 'Update archive not found.' };
+        }
+
+        // Resolve the actual .app bundle path.
+        const appPath = path.resolve(path.dirname(process.execPath), '..', '..');
+        if (!fs.existsSync(path.join(appPath, 'Contents'))) {
+            return { success: false, error: `Could not resolve .app bundle path from ${process.execPath}` };
+        }
+        const resolvedAppPath = appPath;
+
+        const updaterDir = fs.mkdtempSync(path.join(tempDir, 'gamehub-update-'));
+        const manifestPath = path.join(updaterDir, 'gamehub-update-manifest.json');
+        const manifest = {
+            zipPath,
+            appPath: resolvedAppPath,
+            arch: process.arch,
+            version: cachedUpdateVersion
+        };
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+
+        const scriptPath = path.join(__dirname, '..', 'src', 'updater', 'macExternalUpdater.js');
+        const copiedScriptPath = path.join(updaterDir, 'macExternalUpdater.js');
+        fs.copyFileSync(scriptPath, copiedScriptPath);
+
+        const admZipSrc = path.join(process.resourcesPath, 'node_modules', 'adm-zip');
+        if (!fs.existsSync(admZipSrc)) {
+            throw new Error(`[Updater] Packaged adm-zip not found: ${admZipSrc}`);
+        }
+        const admZipDest = path.join(updaterDir, 'node_modules', 'adm-zip');
+        fs.cpSync(admZipSrc, admZipDest, { recursive: true });
+
+        // ── DIAGNOSTIC: resolve and verify node binary ──────────────────────────
+        // In a packaged Electron app, process.env.PATH is minimal. We scan all
+        // candidates verbosely so the log tells us exactly what was tried.
+        const nodeCandidates = (process.env.PATH || '')
+            .split(':')
+            .filter(Boolean)
+            .map(dir => path.join(dir, 'node'))
+            .concat([
+                '/opt/homebrew/bin/node',
+                '/usr/local/bin/node',
+                '/usr/bin/node',
+                '/usr/local/nvm/versions/node/current/bin/node',
+            ]);
+
+        let nodeBin = null;
+        const diagLines = [];
+        diagLines.push('[Updater][DIAG] === installUpdate diagnostic start ===');
+        diagLines.push(`[Updater][DIAG] process.execPath:     ${process.execPath}`);
+        diagLines.push(`[Updater][DIAG] process.resourcesPath: ${process.resourcesPath}`);
+        diagLines.push(`[Updater][DIAG] process.arch:          ${process.arch}`);
+        diagLines.push(`[Updater][DIAG] process.env.PATH:      ${process.env.PATH || '(empty)'}`);
+        diagLines.push(`[Updater][DIAG] updaterDir:            ${updaterDir}`);
+        diagLines.push(`[Updater][DIAG] copiedScriptPath:      ${copiedScriptPath}`);
+        diagLines.push(`[Updater][DIAG] manifestPath:          ${manifestPath}`);
+        diagLines.push(`[Updater][DIAG] admZipDest:            ${admZipDest}`);
+        diagLines.push(`[Updater][DIAG] zipPath:               ${zipPath}`);
+
+        diagLines.push('[Updater][DIAG] --- node candidate scan ---');
+        for (const candidate of nodeCandidates) {
+            try {
+                const st = fs.statSync(candidate);
+                if (st.isFile()) {
+                    diagLines.push(`[Updater][DIAG]   FOUND: ${candidate}`);
+                    if (!nodeBin) nodeBin = candidate;
+                } else {
+                    diagLines.push(`[Updater][DIAG]   NOT-FILE: ${candidate}`);
+                }
+            } catch (e) {
+                diagLines.push(`[Updater][DIAG]   MISSING: ${candidate} (${e.code || e.message})`);
+            }
+        }
+
+        if (!nodeBin) {
+            nodeBin = 'node'; // fallback
+            diagLines.push(`[Updater][DIAG] node binary: FALLBACK ('node') — no candidate found on disk`);
+        } else {
+            diagLines.push(`[Updater][DIAG] node binary resolved: ${nodeBin}`);
+            // Verify the resolved binary is executable
+            try {
+                fs.accessSync(nodeBin, fs.constants.X_OK);
+                diagLines.push(`[Updater][DIAG] node binary is executable: YES`);
+            } catch (e) {
+                diagLines.push(`[Updater][DIAG] node binary is executable: NO (${e.message})`);
+            }
+        }
+
+        // ── DIAGNOSTIC: verify all files are in place before spawning ───────────
+        diagLines.push('[Updater][DIAG] --- file presence check ---');
+        for (const [label, p] of [
+            ['copiedScriptPath', copiedScriptPath],
+            ['manifestPath',     manifestPath],
+            ['admZipDest',       admZipDest],
+            ['zipPath',          zipPath],
+        ]) {
+            const exists = fs.existsSync(p);
+            diagLines.push(`[Updater][DIAG]   ${label}: ${exists ? 'EXISTS' : 'MISSING'} — ${p}`);
+        }
+
+        // ── Write the pre-spawn diagnostic log NOW, before spawning ─────────────
+        // Writing before spawn means we know the log exists even if spawn fails.
+        const updaterLogPath = path.join(tempDir, 'gamehub-updater.log');
+        diagLines.push(`[Updater][DIAG] updaterLogPath:        ${updaterLogPath}`);
+        diagLines.push('[Updater][DIAG] --- about to spawn ---');
+        const diagText = diagLines.join('\n') + '\n';
+
+        // Also echo to Electron console so it's visible in packaged app logs
+        diagLines.forEach(l => console.log(l));
+
+        // Write the pre-spawn block to the log file synchronously
+        try { fs.writeFileSync(updaterLogPath, diagText); } catch (_) {}
+
+        // ── Spawn ─────────────────────────────────────────────────────────────────
+        // Open the log for append so both parent writes and child writes go there.
+        const logFd = fs.openSync(updaterLogPath, 'a');
+
+        let child;
+        try {
+            child = spawn(nodeBin, [copiedScriptPath, manifestPath], {
+                detached: true,
+                stdio: ['ignore', logFd, logFd]
+            });
+        } catch (spawnErr) {
+            // spawn() itself threw synchronously (ENOENT, EACCES, etc.)
+            const errMsg = `[Updater][DIAG] spawn() threw synchronously: ${spawnErr.message}\n`;
+            console.error(errMsg);
+            try { fs.appendFileSync(updaterLogPath, errMsg); } catch (_) {}
+            fs.closeSync(logFd);
+            return { success: false, error: `spawn failed: ${spawnErr.message}` };
+        }
+
+        // Attach diagnostic listeners BEFORE unref so we capture early exits.
+        // These do NOT prevent the child from running independently.
+        // Guard with typeof check so test environments with minimal mock
+        // child objects (no .on) don't throw.
+        if (typeof child.on === 'function') {
+            child.on('error', (err) => {
+                const msg = `[Updater][DIAG] child error event: ${err.message} (code=${err.code})\n`;
+                console.error(msg);
+                // Write synchronously — the parent may quit any moment
+                try { fs.appendFileSync(updaterLogPath, msg); } catch (_) {}
+            });
+
+            child.on('exit', (code, signal) => {
+                const msg = `[Updater][DIAG] child exit: pid=${child.pid} code=${code} signal=${signal}\n`;
+                console.log(msg);
+                try { fs.appendFileSync(updaterLogPath, msg); } catch (_) {}
+            });
+
+            child.on('close', (code, signal) => {
+                const msg = `[Updater][DIAG] child close: pid=${child.pid} code=${code} signal=${signal}\n`;
+                console.log(msg);
+                try { fs.appendFileSync(updaterLogPath, msg); } catch (_) {}
+            });
+        }
+
+        const spawnedMsg = `[Updater][DIAG] spawn() returned: pid=${child.pid}\n`;
+        console.log(spawnedMsg);
+        try { fs.appendFileSync(updaterLogPath, spawnedMsg); } catch (_) {}
+
+        // Detach from parent so Electron can quit without killing the child.
+        child.unref();
+        fs.closeSync(logFd);
+
+        // Give the updater time to start before quitting.
+        // The diagnostic listeners above use appendFileSync so they survive after
+        // parent closes logFd (each call re-opens the file).
+        setTimeout(() => {
+            app.quit();
+        }, 1500);
+
         return { success: true };
     });
 

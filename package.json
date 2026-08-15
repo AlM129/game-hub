@@ -16,6 +16,16 @@
   "build": {
     "appId": "com.gamehub.app",
     "productName": "Game Hub",
+    "extraResources": [
+      {
+        "from": "src/updater/macExternalUpdater.js",
+        "to": "src/updater/macExternalUpdater.js"
+      },
+      {
+        "from": "node_modules/adm-zip",
+        "to": "node_modules/adm-zip"
+      }
+    ],
     "mac": {
       "target": [
         "dmg",
@@ -41,6 +51,8 @@
     "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "electron-packager": "^17.1.2",
+    "fast-check": "^3.23.2",
+    "jest": "^29.7.0",
     "playwright": "^1.61.1",
     "postcss": "^8.5.16",
     "tailwindcss": "^4.3.2"
