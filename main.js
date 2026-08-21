@@ -864,7 +864,10 @@ app.whenReady().then(() => {
             zipPath,
             appPath: resolvedAppPath,
             arch: process.arch,
-            version: cachedUpdateVersion
+            version: cachedUpdateVersion,
+            // Pass the current Game Hub PID so the external updater can wait for
+            // this process to fully exit before replacing/relaunching the app.
+            parentPid: process.pid
         };
         fs.writeFileSync(manifestPath, JSON.stringify(manifest));
 

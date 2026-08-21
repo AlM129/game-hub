@@ -14,6 +14,7 @@
  *   - appPath: path to the existing Game Hub.app bundle
  *   - arch: target architecture (x64 or arm64)
  *   - version: target version string
+ *   - parentPid: PID of the original Game Hub process to wait for before replacing
  */
 
 const fs = require('fs');
@@ -35,10 +36,11 @@ async function main() {
         process.exit(1);
     }
 
-    const { zipPath, appPath, arch, version } = manifest;
+    const { zipPath, appPath, arch, version, parentPid } = manifest;
     console.log(`[Updater] Starting update to v${version} for arch=${arch}`);
     console.log(`[Updater] zipPath=${zipPath}`);
     console.log(`[Updater] appPath=${appPath}`);
+    console.log(`[Updater] parentPid=${parentPid}`);
 
     // Validate inputs
     if (!fs.existsSync(zipPath)) {
@@ -88,6 +90,54 @@ async function main() {
         console.error(`[Updater] Extracted path is not a directory: ${extractedAppPath}`);
         cleanupAndExit(tempDir, 1);
     }
+
+    // ── Synchronize with the original Game Hub process ─────────────────────────
+    // main.js spawns this updater as a detached child and then calls app.quit()
+    // ~1500ms later. If we replace/relaunch the app while the old Game Hub
+    // process is still alive, Electron may reuse the existing instance when we
+    // `open` the new app — so the launch-verification pgrep check never sees a
+    // fresh process and the update is wrongly declared a failure. Wait for the
+    // original PID to exit before backing up / installing / launching.
+    const originalProcessPid = Number(parentPid);
+    if (!Number.isInteger(originalProcessPid) || originalProcessPid <= 0) {
+        console.error(`[Updater] Manifest parentPid is invalid: ${parentPid}`);
+        cleanupAndExit(tempDir, 1);
+    }
+    console.log(`[Updater] Waiting for original Game Hub process pid=${originalProcessPid} to exit...`);
+    const pidWaitIntervalMs = 300;
+    const pidWaitTimeoutMs = 10000;
+    const pidWaitStart = Date.now();
+    let originalProcessExited = false;
+    let pidWaitAttempt = 0;
+
+    while (!originalProcessExited && Date.now() - pidWaitStart < pidWaitTimeoutMs) {
+        const killProbe = spawnSync('kill', ['-0', String(originalProcessPid)], {
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        if (killProbe.error) {
+            console.error(`[Updater] Could not probe original process pid=${originalProcessPid}: ${killProbe.error.message}`);
+            cleanupAndExit(tempDir, 1);
+        }
+        pidWaitAttempt += 1;
+        // kill -0 returns status 0 when the process exists, non-zero once it has exited.
+        originalProcessExited = killProbe.status !== 0;
+        console.log(`[Updater] Original process wait attempt #${pidWaitAttempt}: pid=${originalProcessPid}, exited=${originalProcessExited}`);
+
+        if (!originalProcessExited) {
+            const waitMs = Math.min(pidWaitIntervalMs, pidWaitTimeoutMs - (Date.now() - pidWaitStart));
+            if (waitMs > 0) {
+                console.log(`[Updater] Original process still running (pid=${originalProcessPid}); retrying in ${waitMs}ms...`);
+                await new Promise(resolve => setTimeout(resolve, waitMs));
+            }
+        }
+    }
+
+    if (!originalProcessExited) {
+        console.error(`[Updater] Original Game Hub process pid=${originalProcessPid} did not exit within ${pidWaitTimeoutMs}ms. Aborting update.`);
+        cleanupAndExit(tempDir, 1);
+    }
+
+    console.log(`[Updater] Original Game Hub process pid=${originalProcessPid} has exited. Proceeding with backup/install.`);
 
     // Move existing app to backup
     const backupPath = appPath + '.backup';
@@ -151,17 +201,35 @@ async function main() {
         const openStderr = openResult.stderr ? openResult.stderr.toString().trim() : '';
         console.log(`[Updater] /usr/bin/open result: exit=${openResult.status}${openStderr ? ', stderr=' + openStderr : ''}`);
 
-        // Wait briefly to ensure the new app starts
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // Confirm the process is actually running by polling for the installed
+        // executable. /usr/bin/open exiting 0 only means the launch request was
+        // accepted — macOS/Electron need time to bring the process up, so we do
+        // NOT treat an immediate absence as a launch failure. Poll the executable
+        // path for up to 5s and only roll back if it never appears.
+        const processCheckIntervalMs = 300;
+        const processCheckTimeoutMs = 5000;
+        const processCheckStart = Date.now();
+        let processFound = false;
+        let checkAttempt = 0;
 
-        // Actually verify the new Game Hub process is running by checking for the
-        // installed executable. pgrep -f matches against the full process listing.
-        const pgrepResult = spawnSync('pgrep', ['-f', executablePath], {
-            stdio: ['ignore', 'pipe', 'pipe']
-        });
-        // pgrep returns 0 when at least one matching process is found, 1 when none.
-        const processFound = pgrepResult.status === 0;
-        console.log(`[Updater] Process check: executable=${executablePath}, found=${processFound}`);
+        while (!processFound && Date.now() - processCheckStart < processCheckTimeoutMs) {
+            const pgrepResult = spawnSync('pgrep', ['-f', executablePath], {
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+            // pgrep returns 0 when at least one matching process is found, 1 when none.
+            processFound = pgrepResult.status === 0;
+            checkAttempt += 1;
+            console.log(`[Updater] Process check #${checkAttempt}: executable=${executablePath}, found=${processFound}`);
+
+            if (!processFound) {
+                // Wait before the next attempt, without overshooting the timeout.
+                const waitMs = Math.min(processCheckIntervalMs, processCheckTimeoutMs - (Date.now() - processCheckStart));
+                if (waitMs > 0) {
+                    console.log(`[Updater] Process not found yet (#${checkAttempt}); retrying in ${waitMs}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, waitMs));
+                }
+            }
+        }
 
         if (!processFound) {
             throw new Error('Game Hub process not detected after launch.');
