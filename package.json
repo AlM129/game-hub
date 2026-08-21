@@ -10,6 +10,7 @@
     "dist:mac": "electron-builder --mac --x64 --arm64",
     "dist:mac:x64": "electron-builder --mac --x64",
     "dist:mac:arm64": "electron-builder --mac --arm64",
+    "dist:mac:universal": "electron-builder --mac --universal",
     "test": "playwright test",
     "test:smoke": "playwright test tests/launcher.spec.js tests/games.spec.js tests/bridge.spec.js"
   },

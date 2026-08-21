@@ -247,27 +247,38 @@ function setupUpdater() {
             const result = await autoUpdater.getUpdateInfoAndProvider();
             const files = result.provider.resolveFiles(result.info);
 
-            const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+            // Normalize a release asset's download URL whether it is represented
+            // as a plain string or as a URL object (exposing .href), matching the
+            // existing handling of architecture-specific assets.
+            const normalizeAssetUrl = (item) =>
+                typeof item.url === 'string'
+                    ? item.url
+                    : (item.url && item.url.href)
+                        ? item.url.href
+                        : String(item.url);
 
-            const file = files.find(f => {
-                const url =
-                    typeof f.url === 'string'
-                        ? f.url
-                        : (f.url && f.url.href)
-                            ? f.url.href
-                            : '';
+            // Preferred: a universal macOS ZIP matching the current release. Our
+            // public macOS release ships a single universal ZIP, so automatically
+            // select it over any legacy architecture-specific build when present.
+            let file = files.find((item) => {
+                const url = normalizeAssetUrl(item);
+                return url.includes('universal') && url.includes('.zip');
+            });
 
-                return url.includes(`-${arch}.`) ||
-                    url.includes(`-${arch}.zip`);
-            }) || files[0];
+            // Fallback: preserve the existing architecture-specific selection for
+            // x64/arm64 releases, using process.arch detection as before.
+            if (!file) {
+                const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+
+                file = files.find((item) => {
+                    const url = normalizeAssetUrl(item);
+                    return url.includes(`-${arch}.`) ||
+                        url.includes(`-${arch}.zip`);
+                }) || files[0];
+            }
 
             if (file) {
-                cachedUpdateAssetUrl =
-                    typeof file.url === 'string'
-                        ? file.url
-                        : (file.url && file.url.href)
-                            ? file.url.href
-                            : String(file.url);
+                cachedUpdateAssetUrl = normalizeAssetUrl(file);
             }
         } catch (e) {
             console.warn(
