@@ -756,13 +756,14 @@ app.whenReady().then(() => {
         const tempDir = app.getPath('temp');
         const zipPath = path.join(tempDir, 'gamehub-update.zip');
 
-        // If already downloaded, reuse it
+        // Remove any stale/failed/corrupt download before starting fresh so it
+        // can never be mistaken for a valid cached update.
         if (fs.existsSync(zipPath)) {
-            launcherUpdateReady = true;
-            if (mainWindow && !mainWindow.isDestroyed()) {
-                mainWindow.webContents.send('launcher-update-downloaded', { version: cachedUpdateVersion });
+            try {
+                fs.unlinkSync(zipPath);
+            } catch (err) {
+                throw new Error(`Failed to remove stale update archive: ${err.message}`);
             }
-            return { success: true, cached: true };
         }
 
         console.log(`[Updater] Downloading update from: ${cachedUpdateAssetUrl}`);
@@ -789,6 +790,15 @@ app.whenReady().then(() => {
     });
 
     function pump(response, destination, zipPath, resolve, reject) {
+        // Only treat 2xx responses as a successful download. Anything else (e.g.
+        // a 404 HTML error page) must never be written to gamehub-update.zip.
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+            // Drain/resume the response so the connection can close cleanly.
+            response.resume();
+            reject(new Error(`Update download returned HTTP ${response.statusCode}`));
+            return;
+        }
+
         const totalSize = parseInt(response.headers['content-length'], 10) || 0;
         let transferred = 0;
         const fileStream = fs.createWriteStream(zipPath);
@@ -819,6 +829,12 @@ app.whenReady().then(() => {
         });
 
         fileStream.on('error', (err) => {
+            // Ensure a partial/corrupt archive does not remain to be reused later.
+            try {
+                if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+            } catch (cleanupErr) {
+                // Ignore cleanup failure; the download is already failing.
+            }
             reject(new Error(`Failed to save update: ${err.message}`));
         });
     }
