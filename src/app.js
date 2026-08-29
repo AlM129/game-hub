@@ -10,7 +10,7 @@ import { navigateTo, getCurrentView as getRouterCurrentView } from './core/route
 import { GameHub } from './core/events.js';
 import { formatDate, formatLastPlayed, getChannelBadge, getRarityBadge, getRarityBg, resolveCoverUrl, resolveGameUrl } from './utils.js';
 import { showError, showSuccess } from './ui/components/notification.js';
-import { CHANNEL_CONFIG } from './games/registry.js';
+import { CHANNEL_CONFIG, getRegistrySource } from './games/registry.js';
 
 // Re-export games for backward compatibility
 const games = getGames();
@@ -531,6 +531,14 @@ async function renderLibrary(filterTerm = '') {
         }
 
         if (filtered.length === 0) {
+            // Show an appropriate empty state. Offline, a missing registry
+            // means no downloadable catalog (download-only launcher), so point
+            // the user at connecting to browse, or to their installed games.
+            if (getRegistrySource() !== 'remote') {
+                noResults.innerHTML =
+                    '<p class="text-gray-500 font-medium">You\'re offline.</p>' +
+                    '<p class="text-gray-600 text-sm mt-2">Your installed games will appear here.<br>Connect to the internet to browse and download new games.</p>';
+            }
             noResults.classList.remove('hidden');
             return;
         }

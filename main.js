@@ -17,6 +17,8 @@ const {
 
 // Save-data cleanup + uninstall orchestration
 const { uninstallGameWithSaveHandling } = require('./src/downloader/saveCleanup');
+// Validated install-path resolution (reused for reading installed-game metadata)
+const { validateGameId, resolveInstallPath } = require('./src/downloader/uninstaller');
 
 // Launcher self-update detection (updates GAME HUB itself, not games).
 // Electron-updater is loaded LAZILY so development mode (npm start /
@@ -1053,6 +1055,27 @@ app.whenReady().then(() => {
             }
         });
         return { checked: true };
+    });
+
+    ipcMain.handle('game:readInstalledFile', (event, gameId, fileName = 'game.json') => {
+        // Safely read a JSON metadata file from an installed game's directory.
+        // The path is derived ONLY from the validated gameId + games dir; a
+        // renderer-supplied path is never trusted. fileName must be a safe,
+        // flat *.json name (no separators / path traversal).
+        try {
+            validateGameId(gameId);
+            if (typeof fileName !== 'string' || !/^[A-Za-z0-9._-]+$/.test(fileName) || !fileName.endsWith('.json')) {
+                return { ok: false, error: `Invalid file name: ${fileName}` };
+            }
+            const installPath = resolveInstallPath(app, gameId);
+            const filePath = path.join(installPath, fileName);
+            if (!fs.existsSync(filePath)) {
+                return { ok: false, error: 'not-found', file: fileName };
+            }
+            return { ok: true, data: JSON.parse(fs.readFileSync(filePath, 'utf8')) };
+        } catch (error) {
+            return { ok: false, error: error.message || String(error) };
+        }
     });
 
     ipcMain.handle('game:returnToLauncher', () => {

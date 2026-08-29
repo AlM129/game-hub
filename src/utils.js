@@ -55,14 +55,29 @@ export function resolveMediaUrl(mediaUrl, metadataUrl) {
     if (mediaUrl.startsWith('http://') || mediaUrl.startsWith('https://') || mediaUrl.startsWith('file://')) {
         return mediaUrl;
     }
-    // Relative URL — resolve against the metadata URL using the built-in URL constructor
+    // Absolute/root-relative paths are returned as-is
+    if (mediaUrl.startsWith('/')) {
+        return mediaUrl;
+    }
+    // Relative URL
     if (metadataUrl) {
-        try {
-            return new URL(mediaUrl, metadataUrl).href;
-        } catch (e) {
-            console.warn(`GameHub: Failed to resolve media URL "${mediaUrl}" against "${metadataUrl}":`, e.message);
-            return mediaUrl;
+        // Absolute (remote) metadata URL — resolve using the URL constructor.
+        // This preserves remote registry behavior.
+        if (metadataUrl.startsWith('http://') || metadataUrl.startsWith('https://')) {
+            try {
+                return new URL(mediaUrl, metadataUrl).href;
+            } catch (e) {
+                console.warn(`GameHub: Failed to resolve media URL "${mediaUrl}" against "${metadataUrl}":`, e.message);
+                return mediaUrl;
+            }
         }
+        // Relative/local metadata file (offline packaged fallback) — join the
+        // media path next to the metadata file (e.g. cover.png next to
+        // src/games/games/sky-ace/game.json) with a plain path join. Using the
+        // URL constructor here would throw "Invalid base URL" for relative bases.
+        const separator = metadataUrl.lastIndexOf('/');
+        const baseDir = separator >= 0 ? metadataUrl.slice(0, separator + 1) : '';
+        return baseDir + mediaUrl;
     }
     return mediaUrl;
 }

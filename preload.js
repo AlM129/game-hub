@@ -73,5 +73,6 @@ contextBridge.exposeInMainWorld('updater', {
 });
 
 contextBridge.exposeInMainWorld('gameHub', {
-    returnToLauncher: () => ipcRenderer.invoke('game:returnToLauncher')
+    returnToLauncher: () => ipcRenderer.invoke('game:returnToLauncher'),
+    readInstalledFile: (gameId, fileName) => ipcRenderer.invoke('game:readInstalledFile', gameId, fileName)
 });

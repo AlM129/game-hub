@@ -10,6 +10,21 @@
 
 export const LOCAL_REGISTRY_URL = 'src/games/registry.json';
 
+// Directory that the packaged local registry's game assets live in.
+// Mirrors the remote game-hub-registry repo layout:
+//   games/<id>/game.json, games/<id>/cover.png, games/<id>/achievements.json
+// Relative metaUrls/media paths are resolved against this when the launcher
+// falls back to the local registry (offline/local snapshot).
+export const LOCAL_REGISTRY_BASE = 'src/games/';
+
+/**
+ * Get the base URL used to resolve relative metaUrls/media paths for the
+ * packaged local registry fallback.
+ */
+export function getLocalRegistryBaseUrl() {
+    return LOCAL_REGISTRY_BASE;
+}
+
 // Default remote registry URL (GitHub raw content URL)
 // Points to the new game-hub-registry repository's registry.json
 export const REMOTE_REGISTRY_URL = "https://raw.githubusercontent.com/AlM129/game-hub-registry/main/registry.json";

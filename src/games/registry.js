@@ -15,7 +15,13 @@
 //
 // All games are download-only — no bundled games are shipped with the launcher.
 
-import { getRegistryUrl, LOCAL_REGISTRY_URL, getUseRemoteRegistry, getRegistryBaseUrl } from './registry-source.js';
+import {
+    getRegistryUrl,
+    getUseRemoteRegistry,
+    getRegistryBaseUrl,
+    setRegistryBaseUrl,
+    REMOTE_REGISTRY_BASE
+} from './registry-source.js';
 import { Storage } from '../storage.js';
 
 // ==========================================
@@ -23,7 +29,6 @@ import { Storage } from '../storage.js';
 // ==========================================
 
 const CACHE_KEY = 'gamehub-registry-cache';
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 // ==========================================
 // MUTABLE STATE
@@ -36,6 +41,33 @@ export let registryMeta = {
     featured: null
 };
 export let launcherChangelog = [];
+
+// Actual source of the most recently loaded registry.
+// One of 'remote' | 'local' | 'cache' | null.
+let registrySource = null;
+
+/**
+ * Get the source the registry was actually loaded from.
+ * @returns {string|null} 'remote', 'local', 'cache', or null if none
+ */
+export function getRegistrySource() {
+    return registrySource;
+}
+
+/**
+ * Record the registry source and keep the active base URL in sync with where
+ * the registry came from. Online, relative metaUrls resolve against the GitHub
+ * registry base. Offline, there is no bundled catalog, so there is no source
+ * tree base to resolve against (relative metaUrls are never used offline).
+ */
+function setRegistrySource(source) {
+    registrySource = source;
+    if (source === 'remote') {
+        setRegistryBaseUrl(REMOTE_REGISTRY_BASE);
+    } else {
+        setRegistryBaseUrl('');
+    }
+}
 
 // Per-game metadata cache (lazy-loaded from metaUrl)
 const metadataCache = {};
@@ -143,7 +175,10 @@ function saveCache(registryData, metadata = {}) {
 
 /**
  * Load registry data from cache.
- * @returns {Object|null} Cached data or null if expired/missing
+ * The cached registry is treated as a persistent offline snapshot: it is
+ * considered usable regardless of how old it is. The timestamp is kept only
+ * for informational/debugging purposes — it must not determine validity.
+ * @returns {Object|null} Cached data or null if missing/unusable
  */
 function loadCache() {
     try {
@@ -151,14 +186,11 @@ function loadCache() {
         if (!raw) return null;
 
         const cache = JSON.parse(raw);
+
+        // Informational only — the age never invalidates the offline snapshot.
         const age = Date.now() - (cache.timestamp || 0);
-
-        if (age > CACHE_TTL_MS) {
-            console.log('GameHub: Registry cache expired');
-            return null;
-        }
-
         console.log(`GameHub: Using cached registry (${Math.round(age / 1000)}s old)`);
+
         return cache;
     } catch (error) {
         console.warn('GameHub: Failed to load registry cache:', error.message);
@@ -178,6 +210,19 @@ function isValidMetadataCache(metadata) {
     return Object.values(metadata.channels).some(
         channel => channel.download?.url
     );
+}
+
+/**
+ * Get the raw cached registry snapshot, if one exists.
+ * Used offline to enrich installed-game display metadata (names/covers) from a
+ * previous successful online fetch. It is NOT a catalog of downloadable games —
+ * offline the catalog is the installed-game storage.
+ * @returns {Object|null} Raw cached registry (object map or legacy array), or null
+ */
+export function getCachedRegistryEntries() {
+    const cache = loadCache();
+    if (!cache || !cache.registry) return null;
+    return cache.registry;
 }
 
 /**
@@ -231,7 +276,8 @@ export async function loadRegistry() {
     let data = null;
     let source = null;
     
-    // Try remote registry first if enabled
+    // Try remote registry first if enabled.
+    // The remote GitHub registry is the ONLY catalog when online (download-only).
     if (getUseRemoteRegistry()) {
         try {
             const remoteUrl = getRegistryUrl();
@@ -247,49 +293,32 @@ export async function loadRegistry() {
             source = 'remote';
             console.log('GameHub: Successfully loaded registry from remote URL');
         } catch (error) {
-            console.warn('GameHub: Failed to load remote registry (offline or network error):', error.message);
-            // Continue to local fallback or cache
+            console.warn('GameHub: Failed to load remote registry (offline):', error.message);
+            // OFFLINE path — handled below. Game Hub is download-only and ships
+            // NO bundled catalog, so there is no local/cached registry fallback
+            // for downloadable games.
         }
     } else {
-        console.log('GameHub: Remote registry disabled, using local registry');
+        console.log('GameHub: Remote registry disabled — using installed-game catalog (offline)');
     }
     
-    // Fall back to local registry if remote failed or is disabled
+    // If the remote registry is unavailable (offline/disabled), leave the
+    // catalog empty. The installed-game storage (loaded in loadGameManifests)
+    // becomes the catalog here, showing only games the user has installed.
     if (!data) {
-        try {
-            console.log('GameHub: Falling back to local registry:', LOCAL_REGISTRY_URL);
-            const response = await fetch(LOCAL_REGISTRY_URL);
-            
-            if (!response.ok) {
-                throw new Error(`Local registry returned status: ${response.status}`);
-            }
-            
-            data = await response.json();
-            source = 'local';
-            console.log('GameHub: Successfully loaded registry from local fallback');
-        } catch (error) {
-            console.warn('GameHub: Failed to load local registry:', error.message);
-            // Try cache before giving up
-            const cache = loadCache();
-            if (cache && cache.registry) {
-                console.log('GameHub: Using cached registry as fallback');
-                data = cache.registry;
-                source = 'cache';
-            }
-        }
-    }
-    
-    // If we still have no data, use empty state
-    if (!data) {
-        console.error('GameHub: No registry data available from any source');
+        console.log('GameHub: No remote registry available; catalog will be installed games only');
+        setRegistrySource('offline');
         gamesRegistry = [];
         registryMeta = { version: "1", featured: null };
         launcherChangelog = [];
         return { gamesRegistry, registryMeta, launcherChangelog };
     }
-    
+
+    // Record the actual source (online) so relative metaUrls resolve against GitHub.
+    setRegistrySource(source);
+
     try {
-        // Save to cache if from remote
+        // Persist a snapshot of the fresh online registry for offline enrichment.
         if (source === 'remote') {
             saveCache(data);
         }
@@ -305,17 +334,10 @@ export async function loadRegistry() {
         return { gamesRegistry, registryMeta, launcherChangelog };
     } catch (error) {
         console.error('GameHub: Failed to parse registry data:', error);
-        // Try cache as last resort
-        const cache = loadCache();
-        if (cache && cache.registry) {
-            console.log('GameHub: Using cached registry after parse failure');
-            const result = parseRegistryData(cache.registry);
-            gamesRegistry = result.gamesRegistry;
-            registryMeta = result.registryMeta;
-            launcherChangelog = result.launcherChangelog;
-            return { gamesRegistry, registryMeta, launcherChangelog };
-        }
-        // Fall back to empty state
+        // Treat an unusable (online) response like offline: empty catalog with
+        // installed games only. Cached snapshots are not a downloadable catalog.
+        console.log('GameHub: Falling back to installed-games catalog (offline)');
+        setRegistrySource('offline');
         gamesRegistry = [];
         registryMeta = { version: "1", featured: null };
         launcherChangelog = [];
@@ -419,17 +441,15 @@ export async function loadGameMetadata(gameId) {
         return null;
     }
 
-    // Check localStorage cache
-    const cached = getCachedMetadata(gameId);
-    if (cached) {
-        metadataCache[gameId] = cached;
-        return cached;
-    }
-
-    // Resolve metaUrl — could be relative or absolute
+    // Resolve metaUrl — could be relative or absolute.
+    // This runs BEFORE the cache lookup so entry.metaUrl is always a valid,
+    // resolvable location (https when online) even when the metadata itself is
+    // satisfied from cache. Without this, relative media paths (cover.png,
+    // achievements.json) would be resolved against a raw relative metaUrl.
     let metaUrl = entry.metaUrl;
     if (!metaUrl.startsWith('http://') && !metaUrl.startsWith('https://')) {
-        // Relative URL — resolve against registry base
+        // Relative URL — resolve against the registry base, which reflects the
+        // actual source (the GitHub registry when online).
         const base = getRegistryBaseUrl();
         metaUrl = base + metaUrl;
     }
@@ -438,6 +458,13 @@ export async function loadGameMetadata(gameId) {
     // as the base for resolving relative media URLs (e.g., cover.png
     // resolves against the metadata file's URL, not the registry root).
     entry.metaUrl = metaUrl;
+
+    // Check localStorage cache
+    const cached = getCachedMetadata(gameId);
+    if (cached) {
+        metadataCache[gameId] = cached;
+        return cached;
+    }
 
     try {
         console.log(`GameHub: Loading metadata for ${gameId} from ${metaUrl}`);

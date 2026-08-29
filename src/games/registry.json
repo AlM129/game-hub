@@ -1,16 +1,16 @@
 {
-  "$schema": "https://raw.githubusercontent.com/AlM129/game-hub-registry/main/schema/registry.schema.json",
+  "$schema": "schema/registry.schema.json",
   "registryVersion": 1,
-  "lastUpdated": "2026-07-24",
+  "lastUpdated": "2026-07-28",
   "games": {
     "tactical-drone-defense": {
       "id": "tactical-drone-defense",
       "name": "Tactical Drone Defense",
       "developer": "MCM Games",
       "genre": "Shooter",
-      "featured": true,
+      "featured": false,
       "thumbnail": "cover.png",
-      "metaUrl": "games/tactical-drone-defense.json"
+      "metaUrl": "games/tactical-drone-defense/game.json"
     },
     "sky-ace": {
       "id": "sky-ace",
@@ -19,16 +19,7 @@
       "genre": "Flight Simulator",
       "featured": false,
       "thumbnail": "cover.png",
-      "metaUrl": "games/sky-ace.json"
-    },
-    "neon-survival": {
-      "id": "neon-survival",
-      "name": "Neon Survival",
-      "developer": "MCM Games",
-      "genre": "FPS Shooter",
-      "featured": false,
-      "thumbnail": "cover.png",
-      "metaUrl": "games/neon-survival.json"
+      "metaUrl": "games/sky-ace/game.json"
     }
   }
 }
