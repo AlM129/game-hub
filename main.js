@@ -20,6 +20,15 @@ const { uninstallGameWithSaveHandling } = require('./src/downloader/saveCleanup'
 // Validated install-path resolution (reused for reading installed-game metadata)
 const { validateGameId, resolveInstallPath } = require('./src/downloader/uninstaller');
 
+// .gamehub profile backup/restore engine
+const {
+    collectGameBackupData,
+    restoreGameBackupData,
+    buildManifest,
+    createGameHubZip,
+    readGameHubZip
+} = require('./src/systems/profiles/backup');
+
 // Launcher self-update detection (updates GAME HUB itself, not games).
 // Electron-updater is loaded LAZILY so development mode (npm start /
 // app.isPackaged === false) never instantiates the updater. Accessing
@@ -666,6 +675,146 @@ app.whenReady().then(() => {
     });
 
     // ==========================================
+    // .gamehub Profile Backup / Restore
+    // ==========================================
+    // Builds/reads the portable .gamehub ZIP container. Game save data is a
+    // snapshot of the shared localStorage (reachable via the page host) —
+    // Game Hub never understands a game's internal save format and needs no
+    // game backup API. Games that can't be hosted are omitted from the backup.
+
+    ipcMain.handle('profiles:exportGameHub', async (event, profileId) => {
+        const profiles = store.get('profiles') || {};
+        if (!profiles[profileId]) {
+            throw new Error(`Profile not found: ${profileId}`);
+        }
+        const profile = normalizeProfile(profileId, profiles[profileId]);
+
+        // Collect native backup data for every installed game (best-effort).
+        const installed = store.get('installedGames') || {};
+        const games = {};
+        for (const gameId of Object.keys(installed)) {
+            try {
+                const data = await collectGameBackupData(app, gameId);
+                if (data && typeof data === 'object') {
+                    games[gameId] = data;
+                }
+            } catch (e) {
+                console.warn(`GameHub: skipping backup for "${gameId}" (unsupported or failed): ${e.message}`);
+            }
+        }
+
+        const manifest = buildManifest(profile, Object.keys(games));
+        const buffer = createGameHubZip({ manifest, profile, games });
+        return { base64: buffer.toString('base64'), manifest };
+    });
+
+    ipcMain.handle('profiles:importGameHub', async (event, base64) => {
+        if (!base64 || typeof base64 !== 'string') {
+            throw new Error('Invalid .gamehub data: expected a base64 string');
+        }
+        const { manifest, profile, games } = readGameHubZip(Buffer.from(base64, 'base64'));
+
+        // Import the Game Hub profile (mirrors profiles:importProfile).
+        const profiles = store.get('profiles') || {};
+        const id = generateProfileId(profile.name, profiles);
+        const importedName = profile.type === 'default' ? `${profile.name} Backup` : profile.name;
+        const newProfile = {
+            id,
+            name: importedName,
+            type: 'custom', // Force imported profiles to 'custom' type so they can be deleted
+            settings: { volume: 80, theme: 'dark', ...(profile.settings || {}) },
+            achievements: { ...(profile.achievements || {}) },
+            statistics: {
+                totalSessions: Number(profile.statistics?.totalSessions || 0),
+                gamePlayHistory: { ...((profile.statistics && profile.statistics.gamePlayHistory) || {}) }
+            },
+            saves: { ...(profile.saves || {}) },
+            createdAt: nowIso()
+        };
+        store.set(`profiles.${id}`, normalizeProfile(id, newProfile));
+
+        // Restore game data when installed; otherwise hold as pending restore.
+        const installed = store.get('installedGames') || {};
+        const restored = [];
+        const pending = [];
+        // Profile-scoped game keys in the backup are rewritten from the source
+        // profile's ID to the newly imported profile's ID.
+        const sourceProfileId = (profile && profile.id) || null;
+        for (const [gameId, data] of Object.entries(games || {})) {
+            if (installed[gameId]) {
+                try {
+                    await restoreGameBackupData(app, gameId, data, { sourceProfileId, profileId: id });
+                    restored.push(gameId);
+                } catch (e) {
+                    console.warn(`GameHub: restore for "${gameId}" failed, keeping pending: ${e.message}`);
+                    pending.push(gameId);
+                }
+            } else {
+                pending.push(gameId);
+            }
+        }
+
+        // Persist pending restores against the imported profile so they can be
+        // applied when the game is later installed/launched under this profile.
+        if (pending.length > 0) {
+            const saves = store.get(`profiles.${id}.saves`) || {};
+            const pendingRestores = { ...((saves && saves.pendingGameRestores) || {}) };
+            for (const gameId of pending) {
+                pendingRestores[gameId] = {
+                    data: games[gameId],
+                    sourceProfileId
+                };
+            }
+            store.set(`profiles.${id}.saves`, { ...saves, pendingGameRestores: pendingRestores });
+        }
+
+        store.store = normalizeStore(store.store);
+        return {
+            profile: store.get(`profiles.${id}`),
+            restored,
+            pending,
+            manifest
+        };
+    });
+
+    // Apply any pending restore data held for the active profile for this game.
+    // Runs entirely in the main process: the game data is restored into the
+    // shared localStorage via the page host. No game backup API is required.
+    ipcMain.handle('game:consumePendingRestore', async (event, gameId) => {
+        try {
+            validateGameId(gameId);
+        } catch (e) {
+            return { data: null };
+        }
+        const activeProfileId = store.get('metadata.activeProfileId') || DEFAULT_PROFILE_ID;
+        const saves = store.get(`profiles.${activeProfileId}.saves`) || {};
+        const pending = (saves && saves.pendingGameRestores) || {};
+        if (!pending[gameId]) {
+            return { data: null };
+        }
+        const entry = pending[gameId] || {};
+        const data = entry.data || null;
+        const sourceProfileId = entry.sourceProfileId || null;
+        delete pending[gameId];
+        store.set(`profiles.${activeProfileId}.saves`, { ...saves, pendingGameRestores: pending });
+        store.store = normalizeStore(store.store);
+
+        if (data) {
+            try {
+                // Non-destructive restore, remapping profile-scoped keys to the
+                // current profile.
+                await restoreGameBackupData(app, gameId, data, {
+                    sourceProfileId,
+                    profileId: activeProfileId
+                });
+            } catch (e) {
+                console.warn(`GameHub: pending restore for "${gameId}" failed: ${e.message}`);
+            }
+        }
+        return { data: null, applied: true };
+    });
+
+    // ==========================================
     // Download IPC Handlers
     // ==========================================
 
@@ -678,6 +827,42 @@ app.whenReady().then(() => {
         mainWindow = originalCreateWindow();
         return mainWindow;
     };
+
+    /**
+     * Apply any pending .gamehub restores for the given game across all profiles.
+     * Runs in the main process (no game API). Non-destructive.
+     */
+    async function applyPendingGameRestores(gameId) {
+        try {
+            validateGameId(gameId);
+        } catch (_) {
+            return;
+        }
+        const profiles = store.get('profiles') || {};
+        for (const profileId of Object.keys(profiles)) {
+            const saves = store.get(`profiles.${profileId}.saves`) || {};
+            const pending = (saves && saves.pendingGameRestores) || {};
+            if (!pending[gameId]) continue;
+            const entry = pending[gameId] || {};
+            const data = entry.data || null;
+            const sourceProfileId = entry.sourceProfileId || null;
+            delete pending[gameId];
+            store.set(`profiles.${profileId}.saves`, { ...saves, pendingGameRestores: pending });
+
+            if (data) {
+                try {
+                    await restoreGameBackupData(app, gameId, data, {
+                        sourceProfileId,
+                        profileId
+                    });
+                    console.log(`GameHub: applied pending restore for "${gameId}" on profile "${profileId}"`);
+                } catch (e) {
+                    console.warn(`GameHub: pending restore for "${gameId}" failed: ${e.message}`);
+                }
+            }
+        }
+        store.store = normalizeStore(store.store);
+    }
 
     ipcMain.handle('download:start', (event, gameId, metadata) => {
         const { downloadId } = startDownload(app, gameId, metadata, (progress) => {
@@ -698,6 +883,12 @@ app.whenReady().then(() => {
                 store.set('installedGames', installed);
                 store.store = normalizeStore(store.store);
                 console.log(`GameHub: Saved downloaded game ${gameId} to installedGames`);
+
+                // A freshly installed/updated game may have pending restores
+                // imported earlier (exported while the game was uninstalled).
+                // Apply them into the shared localStorage now so the installed
+                // game immediately sees its restored save data. Non-destructive.
+                applyPendingGameRestores(gameId);
             }
 
             // Forward progress to the renderer

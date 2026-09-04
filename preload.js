@@ -38,7 +38,9 @@ contextBridge.exposeInMainWorld('profiles', {
     switch: (profileId) => ipcRenderer.invoke('profiles:switch', profileId),
     delete: (profileId) => ipcRenderer.invoke('profiles:delete', profileId),
     exportProfile: (profileId) => ipcRenderer.invoke('profiles:exportProfile', profileId),
-    importProfile: (data) => ipcRenderer.invoke('profiles:importProfile', data)
+    importProfile: (data) => ipcRenderer.invoke('profiles:importProfile', data),
+    exportGameHub: (profileId) => ipcRenderer.invoke('profiles:exportGameHub', profileId),
+    importGameHub: (base64) => ipcRenderer.invoke('profiles:importGameHub', base64)
 });
 
 contextBridge.exposeInMainWorld('appInfo', {
@@ -74,5 +76,6 @@ contextBridge.exposeInMainWorld('updater', {
 
 contextBridge.exposeInMainWorld('gameHub', {
     returnToLauncher: () => ipcRenderer.invoke('game:returnToLauncher'),
-    readInstalledFile: (gameId, fileName) => ipcRenderer.invoke('game:readInstalledFile', gameId, fileName)
+    readInstalledFile: (gameId, fileName) => ipcRenderer.invoke('game:readInstalledFile', gameId, fileName),
+    consumePendingRestore: (gameId) => ipcRenderer.invoke('game:consumePendingRestore', gameId)
 });

@@ -1452,17 +1452,43 @@ async function confirmDeleteProfile(profileId) {
 // EXPORT PROFILE
 // ==========================================
 
+// ==========================================
+// EXPORT PROFILE (.gamehub)
+// ==========================================
+// Exports the profile as a .gamehub ZIP container (profile + installed-game
+// backup data). The legacy JSON export path (profiles:exportProfile) remains
+// available in the engine but the user-facing button now produces a .gamehub.
+
+function base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
+function bytesToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
+}
+
 async function exportProfile() {
     try {
         const activeProfile = await window.profiles.get();
         if (!activeProfile) return;
 
-        const data = await window.profiles.exportProfile(activeProfile.id);
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const result = await window.profiles.exportGameHub(activeProfile.id);
+        const blob = new Blob([base64ToBytes(result.base64)], { type: 'application/zip' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `profile-${activeProfile.id}.json`;
+        a.download = `${activeProfile.name || 'profile'}.gamehub`;
         a.click();
         URL.revokeObjectURL(url);
     } catch (e) {
@@ -1471,20 +1497,26 @@ async function exportProfile() {
 }
 
 // ==========================================
-// IMPORT PROFILE
+// IMPORT PROFILE (.gamehub or legacy .json)
 // ==========================================
 
 function importProfile() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json';
+    input.accept = '.gamehub,.json';
     input.onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         try {
-            const text = await file.text();
-            const data = JSON.parse(text);
-            await window.profiles.importProfile(data);
+            if (file.name.toLowerCase().endsWith('.gamehub')) {
+                const arrayBuffer = await file.arrayBuffer();
+                const result = await window.profiles.importGameHub(bytesToBase64(arrayBuffer));
+                console.log('GameHub: imported profile', { restored: result.restored, pending: result.pending });
+            } else {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                await window.profiles.importProfile(data);
+            }
             await renderSettings();
         } catch (err) {
             console.error('Failed to import profile:', err);
